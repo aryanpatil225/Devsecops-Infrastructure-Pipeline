@@ -1,0 +1,34 @@
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/tfplan
+terraform/.terraform.tfstate.lock.info
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+
+# Docker
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Jenkins
+jenkins_home/
+
+# AWS Credentials
+*.pem
+*.key
+aws_credentials.txt
