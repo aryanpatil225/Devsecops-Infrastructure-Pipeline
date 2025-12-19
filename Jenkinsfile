@@ -109,63 +109,61 @@ pipeline {
                 echo '=========================================='
                 
                 script {
-                    // Get absolute path to terraform directory
-                    def workspaceDir = env.WORKSPACE
-                    def terraformPath = "${workspaceDir}/${TERRAFORM_DIR}"
-                    
                     dir(TERRAFORM_DIR) {
                         // List files to verify
                         echo '📂 Verifying Terraform files in directory...'
                         sh 'pwd'
-                        sh 'ls -la *.tf 2>/dev/null || echo "No .tf files found!"'
+                        sh 'ls -la *.tf'
+                        echo ''
+                        
+                        // Install Terraform
+                        echo '📦 Installing Terraform...'
+                        sh '''
+                            # Check if terraform is already installed
+                            if ! command -v terraform &> /dev/null; then
+                                echo "Installing Terraform ${TF_VERSION}..."
+                                
+                                # Install prerequisites
+                                apt-get update -qq
+                                apt-get install -y -qq wget unzip > /dev/null 2>&1
+                                
+                                # Download and install Terraform
+                                wget -q https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip
+                                unzip -q terraform_${TF_VERSION}_linux_amd64.zip
+                                mv terraform /usr/local/bin/
+                                rm terraform_${TF_VERSION}_linux_amd64.zip
+                                
+                                echo "✅ Terraform installed successfully"
+                            else
+                                echo "✅ Terraform already installed"
+                            fi
+                            
+                            terraform version
+                        '''
                         echo ''
                         
                         // Initialize Terraform
                         echo '🔧 Step 1: Terraform Init'
-                        sh """
-                            docker run --rm \
-                                -v "${terraformPath}":/workspace \
-                                -w /workspace \
-                                hashicorp/terraform:${TF_VERSION} \
-                                init
-                        """
+                        sh 'terraform init'
                         echo '✅ Terraform initialized successfully'
                         echo ''
                         
                         // Validate Terraform configuration
                         echo '✔️  Step 2: Terraform Validate'
-                        sh """
-                            docker run --rm \
-                                -v "${terraformPath}":/workspace \
-                                -w /workspace \
-                                hashicorp/terraform:${TF_VERSION} \
-                                validate
-                        """
+                        sh 'terraform validate'
                         echo '✅ Terraform configuration is valid'
                         echo ''
                         
                         // Create Terraform plan
                         echo '📊 Step 3: Terraform Plan'
-                        sh """
-                            docker run --rm \
-                                -v "${terraformPath}":/workspace \
-                                -w /workspace \
-                                hashicorp/terraform:${TF_VERSION} \
-                                plan -out=tfplan
-                        """
+                        sh 'terraform plan -out=tfplan'
                         echo ''
                         echo '✅ Terraform plan created successfully'
                         echo ''
                         
                         // Save plan in human-readable format
                         echo '💾 Step 4: Save Plan Output'
-                        sh """
-                            docker run --rm \
-                                -v "${terraformPath}":/workspace \
-                                -w /workspace \
-                                hashicorp/terraform:${TF_VERSION} \
-                                show tfplan > tfplan.txt
-                        """
+                        sh 'terraform show tfplan > tfplan.txt'
                         echo '✅ Plan saved to terraform/tfplan.txt'
                         echo ''
                         
@@ -179,7 +177,7 @@ pipeline {
                         echo ''
                         echo '🚀 TO APPLY MANUALLY:'
                         echo '   cd terraform'
-                        echo '   docker run --rm -v \$(pwd):/workspace -w /workspace hashicorp/terraform:${TF_VERSION} apply tfplan'
+                        echo '   terraform apply tfplan'
                         echo ''
                     }
                 }
