@@ -1,0 +1,147 @@
+2025-12-19T11:29:14Z	INFO	[misconfig] Misconfiguration scanning is enabled
+2025-12-19T11:29:14Z	INFO	[misconfig] Need to update the checks bundle
+2025-12-19T11:29:14Z	INFO	[misconfig] Downloading the checks bundle...
+111.25 KiB / 165.46 KiB [--------------------------------------->___________________] 67.24% ? p/s ?165.46 KiB / 165.46 KiB [-----------------------------------------------] 100.00% 1.13 MiB p/s 300ms2025-12-19T11:29:16Z	INFO	[terraform scanner] Scanning root module	file_path="."
+2025-12-19T11:29:16Z	INFO	Detected config files	num=2
+
+Report Summary
+
+┌─────────┬───────────┬───────────────────┐
+│ Target  │   Type    │ Misconfigurations │
+├─────────┼───────────┼───────────────────┤
+│ .       │ terraform │         0         │
+├─────────┼───────────┼───────────────────┤
+│ main.tf │ terraform │         6         │
+└─────────┴───────────┴───────────────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+
+main.tf (terraform)
+===================
+Tests: 6 (SUCCESSES: 0, FAILURES: 6)
+Failures: 6 (MEDIUM: 1, HIGH: 4, CRITICAL: 1)
+
+AVD-AWS-0028 (HIGH): Instance does not require IMDS access to require a token.
+════════════════════════════════════════
+IMDS v2 (Instance Metadata Service) introduced session authentication tokens which improve security when talking to IMDS.
+
+By default <code>aws_instance</code> resource sets IMDS session auth tokens to be optional.
+
+To fully protect IMDS you need to enable session tokens by using <code>metadata_options</code> block and its <code>http_tokens</code> variable set to <code>required</code>.
+
+
+See https://avd.aquasec.com/misconfig/avd-aws-0028
+────────────────────────────────────────
+ main.tf:154
+   via main.tf:152-156 (metadata_options)
+    via main.tf:134-190 (aws_instance.web)
+────────────────────────────────────────
+ 134   resource "aws_instance" "web" {
+ ...   
+ 154 [     http_tokens                 = "optional" # ⚠️ Should be "required"
+ ...   
+ 190   }
+────────────────────────────────────────
+
+
+AVD-AWS-0104 (CRITICAL): Security group rule allows unrestricted egress to any IP address.
+════════════════════════════════════════
+Opening up ports to connect out to the public internet is generally to be avoided. You should restrict access to IP addresses or ranges that are explicitly required where possible.
+
+
+See https://avd.aquasec.com/misconfig/aws-vpc-no-public-egress-sgr
+────────────────────────────────────────
+ main.tf:120
+   via main.tf:115-121 (egress)
+    via main.tf:81-129 (aws_security_group.web_sg)
+────────────────────────────────────────
+  81   resource "aws_security_group" "web_sg" {
+  ..   
+ 120 [     cidr_blocks = ["0.0.0.0/0"]
+ ...   
+ 129   }
+────────────────────────────────────────
+
+
+AVD-AWS-0107 (HIGH): Security group rule allows unrestricted ingress from any IP address.
+════════════════════════════════════════
+Security groups provide stateful filtering of ingress and egress network traffic to AWS
+resources. It is recommended that no security group allows unrestricted ingress access to
+remote server administration ports, such as SSH to port 22 and RDP to port 3389.
+
+
+See https://avd.aquasec.com/misconfig/avd-aws-0107
+────────────────────────────────────────
+ main.tf:93
+   via main.tf:88-94 (ingress)
+    via main.tf:81-129 (aws_security_group.web_sg)
+────────────────────────────────────────
+  81   resource "aws_security_group" "web_sg" {
+  ..   
+  93 [     cidr_blocks = ["0.0.0.0/0"] # ⚠️ CRITICAL VULNERABILITY
+ ...   
+ 129   }
+────────────────────────────────────────
+
+
+AVD-AWS-0131 (HIGH): Root block device is not encrypted.
+════════════════════════════════════════
+Block devices should be encrypted to ensure sensitive data is held securely at rest.
+
+
+See https://avd.aquasec.com/misconfig/avd-aws-0131
+────────────────────────────────────────
+ main.tf:146
+   via main.tf:143-148 (root_block_device)
+    via main.tf:134-190 (aws_instance.web)
+────────────────────────────────────────
+ 134   resource "aws_instance" "web" {
+ ...   
+ 146 [     encrypted             = false # ⚠️ HIGH VULNERABILITY - No encryption at rest
+ ...   
+ 190   }
+────────────────────────────────────────
+
+
+AVD-AWS-0164 (HIGH): Subnet associates public IP address.
+════════════════════════════════════════
+You should limit the provision of public IP addresses for resources. Resources should not be exposed on the public internet, but should have access limited to consumers required for the function of your application.
+
+
+See https://avd.aquasec.com/misconfig/aws-vpc-no-public-ingress-sgr
+────────────────────────────────────────
+ main.tf:35
+   via main.tf:31-42 (aws_subnet.public)
+────────────────────────────────────────
+  31   resource "aws_subnet" "public" {
+  ..   
+  35 [   map_public_ip_on_launch = true
+  ..   
+  42   }
+────────────────────────────────────────
+
+
+AVD-AWS-0178 (MEDIUM): VPC does not have VPC Flow Logs enabled.
+════════════════════════════════════════
+VPC Flow Logs provide visibility into network traffic that traverses the VPC and can be used to detect anomalous traffic or insight during security workflows.
+
+
+See https://avd.aquasec.com/misconfig/aws-autoscaling-enable-at-rest-encryption
+────────────────────────────────────────
+ main.tf:17-28
+────────────────────────────────────────
+  17 ┌ resource "aws_vpc" "main" {
+  18 │   cidr_block           = "10.0.0.0/16"
+  19 │   enable_dns_hostnames = true
+  20 │   enable_dns_support   = true
+  21 │ 
+  22 │   tags = {
+  23 │     Name        = "devsecops-pipeline-vpc"
+  24 │     Environment = "development"
+  25 └     Project     = "DevSecOps-Infrastructure-Pipeline"
+  ..   
+────────────────────────────────────────
+
+

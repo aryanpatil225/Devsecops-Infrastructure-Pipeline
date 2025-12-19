@@ -1,0 +1,214 @@
+========================================
+TRIVY SECURITY SCAN REPORT - INITIAL
+========================================
+Project: DevSecOps-Infrastructure-Pipeline
+Assignment: GET-2026
+Date: Friday, December 19, 2025
+Build: #1 - FAILED
+Started by user Aryan Patil
+Obtained Jenkinsfile from git https://github.com/aryanpatil225/Devsecops-Infrastructure-Pipeline.git
+[Pipeline] Start of Pipeline
+[Pipeline] node
+Running on Jenkins in /var/jenkins_home/workspace/DevSecOps-Infrastructure-Pipeline
+[Pipeline] {
+[Pipeline] stage
+[Pipeline] { (Declarative: Checkout SCM)
+[Pipeline] checkout
+Selected Git installation does not exist. Using Default
+The recommended git tool is: NONE
+No credentials specified
+Cloning the remote Git repository
+Cloning repository https://github.com/aryanpatil225/Devsecops-Infrastructure-Pipeline.git
+ > git init /var/jenkins_home/workspace/DevSecOps-Infrastructure-Pipeline # timeout=10
+Fetching upstream changes from https://github.com/aryanpatil225/Devsecops-Infrastructure-Pipeline.git
+ > git --version # timeout=10
+ > git --version # 'git version 2.47.3'
+ > git fetch --tags --force --progress -- https://github.com/aryanpatil225/Devsecops-Infrastructure-Pipeline.git +refs/heads/*:refs/remotes/origin/* # timeout=10
+ > git config remote.origin.url https://github.com/aryanpatil225/Devsecops-Infrastructure-Pipeline.git # timeout=10
+ > git config --add remote.origin.fetch +refs/heads/*:refs/remotes/origin/* # timeout=10
+Avoid second fetch
+ > git rev-parse refs/remotes/origin/main^{commit} # timeout=10
+Checking out Revision 25cf7f7fd4a6fb22115bd1d4b71c8969c02b4495 (refs/remotes/origin/main)
+ > git config core.sparsecheckout # timeout=10
+ > git checkout -f 25cf7f7fd4a6fb22115bd1d4b71c8969c02b4495 # timeout=10
+Commit message: "Add Jenkins pipeline with Trivy scanning"
+First time build. Skipping changelog.
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] withEnv
+[Pipeline] {
+[Pipeline] withEnv
+[Pipeline] {
+[Pipeline] stage
+[Pipeline] { (Checkout)
+[Pipeline] echo
+=========================================
+[Pipeline] echo
+🔄 Stage 1: Checking out DevSecOps-Infrastructure-Pipeline
+[Pipeline] echo
+=========================================
+[Pipeline] checkout
+Selected Git installation does not exist. Using Default
+The recommended git tool is: NONE
+No credentials specified
+ > git rev-parse --resolve-git-dir /var/jenkins_home/workspace/DevSecOps-Infrastructure-Pipeline/.git # timeout=10
+Fetching changes from the remote Git repository
+ > git config remote.origin.url https://github.com/aryanpatil225/Devsecops-Infrastructure-Pipeline.git # timeout=10
+Fetching upstream changes from https://github.com/aryanpatil225/Devsecops-Infrastructure-Pipeline.git
+ > git --version # timeout=10
+ > git --version # 'git version 2.47.3'
+ > git fetch --tags --force --progress -- https://github.com/aryanpatil225/Devsecops-Infrastructure-Pipeline.git +refs/heads/*:refs/remotes/origin/* # timeout=10
+ > git rev-parse refs/remotes/origin/main^{commit} # timeout=10
+Checking out Revision 25cf7f7fd4a6fb22115bd1d4b71c8969c02b4495 (refs/remotes/origin/main)
+ > git config core.sparsecheckout # timeout=10
+ > git checkout -f 25cf7f7fd4a6fb22115bd1d4b71c8969c02b4495 # timeout=10
+Commit message: "Add Jenkins pipeline with Trivy scanning"
+[Pipeline] sh
++ echo Repository contents:
+Repository contents:
+[Pipeline] sh
++ ls -la
+total 24
+drwxr-xr-x 10 root root  320 Dec 19 11:02 .
+drwxr-xr-x  4 root root  128 Dec 19 11:02 ..
+-rw-r--r--  1 root root   95 Dec 19 11:02 .dockerignore
+drwxr-xr-x 13 root root  416 Dec 19 11:02 .git
+-rw-r--r--  1 root root  365 Dec 19 11:02 .gitignore
+-rw-r--r--  1 root root  380 Dec 19 11:02 Dockerfile
+-rw-r--r--  1 root root 5626 Dec 19 11:02 Jenkinsfile
+drwxr-xr-x  4 root root  128 Dec 19 11:02 app
+-rw-r--r--  1 root root  189 Dec 19 11:02 docker-compose.yml
+drwxr-xr-x  5 root root  160 Dec 19 11:02 terraform
+[Pipeline] echo
+✅ Code checkout completed successfully!
+[Pipeline] echo
+Project: DevSecOps-Infrastructure-Pipeline
+[Pipeline] echo
+Assignment: GET-2026
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Infrastructure Security Scan)
+[Pipeline] script
+[Pipeline] {
+[Pipeline] echo
+=========================================
+[Pipeline] echo
+🔒 Stage 2: Running Trivy Security Scan
+[Pipeline] echo
+=========================================
+[Pipeline] echo
+Project: DevSecOps-Infrastructure-Pipeline
+[Pipeline] echo
+Scanning Terraform files for vulnerabilities...
+[Pipeline] echo
+Severity levels checked: CRITICAL,HIGH,MEDIUM
+[Pipeline] echo
+
+[Pipeline] sh
++ pwd
++ docker run --rm -v /var/jenkins_home/workspace/DevSecOps-Infrastructure-Pipeline:/src aquasec/trivy:latest config /src/terraform --severity CRITICAL,HIGH,MEDIUM --format table --exit-code 1
+2025-12-19T11:02:51Z	INFO	[misconfig] Misconfiguration scanning is enabled
+2025-12-19T11:02:51Z	INFO	[misconfig] Need to update the checks bundle
+2025-12-19T11:02:51Z	INFO	[misconfig] Downloading the checks bundle...
+2025-12-19T11:03:00Z	ERROR	[misconfig] Falling back to embedded checks	err="failed to download checks bundle: download error: OCI repository error: 1 error occurred:\n\t* Get \"https://mirror.gcr.io/v2/\": dial tcp 172.217.194.82:443: connect: connection refused\n\n"
+2025-12-19T11:03:00Z	FATAL	Fatal error	run error: fs scan error: scan error: scan failed: failed analysis: analyze with traversal: walk dir error: unknown error with /src/terraform: lstat /src/terraform: no such file or directory
+[Pipeline] echo
+=========================================
+[Pipeline] echo
+⚠️  SECURITY VULNERABILITIES DETECTED!
+[Pipeline] echo
+=========================================
+[Pipeline] echo
+Scan Result Code: 1
+[Pipeline] echo
+
+[Pipeline] echo
+📋 ACTION REQUIRED:
+[Pipeline] echo
+1. Review the vulnerability report above
+[Pipeline] echo
+2. Copy the complete report for AI analysis
+[Pipeline] echo
+3. Use AI to understand and fix security issues
+[Pipeline] echo
+4. Update Terraform code with fixes
+[Pipeline] echo
+5. Re-run this pipeline
+[Pipeline] echo
+
+[Pipeline] echo
+Project: DevSecOps-Infrastructure-Pipeline
+[Pipeline] echo
+Assignment: GET-2026
+[Pipeline] echo
+=========================================
+[Pipeline] error
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Terraform Plan)
+Stage "Terraform Plan" skipped due to earlier failure(s)
+[Pipeline] getContext
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Declarative: Post Actions)
+[Pipeline] echo
+=========================================
+[Pipeline] echo
+📊 Pipeline Execution Summary
+[Pipeline] echo
+=========================================
+[Pipeline] echo
+Project: DevSecOps-Infrastructure-Pipeline
+[Pipeline] echo
+Assignment: GET-2026
+[Pipeline] echo
+Build Number: 1
+[Pipeline] echo
+Build URL: http://localhost:8080/job/DevSecOps-Infrastructure-Pipeline/1/
+[Pipeline] echo
+Build Status: FAILURE
+[Pipeline] echo
+=========================================
+[Pipeline] echo
+❌ ❌ ❌ PIPELINE FAILED ❌ ❌ ❌
+[Pipeline] echo
+
+[Pipeline] echo
+Project: DevSecOps-Infrastructure-Pipeline
+[Pipeline] echo
+Assignment: GET-2026
+[Pipeline] echo
+
+[Pipeline] echo
+🔍 Next Steps:
+[Pipeline] echo
+1. Check the console output above for error details
+[Pipeline] echo
+2. If security scan failed: Copy Trivy report and use AI for remediation
+[Pipeline] echo
+3. If Terraform failed: Check your configuration syntax
+[Pipeline] echo
+4. Fix issues and re-run the pipeline
+[Pipeline] echo
+
+[Pipeline] echo
+For security issues, document the AI remediation process.
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] }
+[Pipeline] // withEnv
+[Pipeline] }
+[Pipeline] // withEnv
+[Pipeline] }
+[Pipeline] // node
+[Pipeline] End of Pipeline
+ERROR: Security scan failed - Infrastructure has critical vulnerabilities!
+Finished: FAILURE
+========================================
+END OF INITIAL SCAN REPORT
+========================================
