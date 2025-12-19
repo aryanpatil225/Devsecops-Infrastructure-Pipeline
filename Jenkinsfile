@@ -109,12 +109,22 @@ pipeline {
                 echo '=========================================='
                 
                 script {
+                    // Get absolute path to terraform directory
+                    def workspaceDir = env.WORKSPACE
+                    def terraformPath = "${workspaceDir}/${TERRAFORM_DIR}"
+                    
                     dir(TERRAFORM_DIR) {
+                        // List files to verify
+                        echo '📂 Verifying Terraform files in directory...'
+                        sh 'pwd'
+                        sh 'ls -la *.tf 2>/dev/null || echo "No .tf files found!"'
+                        echo ''
+                        
                         // Initialize Terraform
                         echo '🔧 Step 1: Terraform Init'
                         sh """
                             docker run --rm \
-                                -v \$(pwd):/workspace \
+                                -v "${terraformPath}":/workspace \
                                 -w /workspace \
                                 hashicorp/terraform:${TF_VERSION} \
                                 init
@@ -126,7 +136,7 @@ pipeline {
                         echo '✔️  Step 2: Terraform Validate'
                         sh """
                             docker run --rm \
-                                -v \$(pwd):/workspace \
+                                -v "${terraformPath}":/workspace \
                                 -w /workspace \
                                 hashicorp/terraform:${TF_VERSION} \
                                 validate
@@ -138,7 +148,7 @@ pipeline {
                         echo '📊 Step 3: Terraform Plan'
                         sh """
                             docker run --rm \
-                                -v \$(pwd):/workspace \
+                                -v "${terraformPath}":/workspace \
                                 -w /workspace \
                                 hashicorp/terraform:${TF_VERSION} \
                                 plan -out=tfplan
@@ -151,7 +161,7 @@ pipeline {
                         echo '💾 Step 4: Save Plan Output'
                         sh """
                             docker run --rm \
-                                -v \$(pwd):/workspace \
+                                -v "${terraformPath}":/workspace \
                                 -w /workspace \
                                 hashicorp/terraform:${TF_VERSION} \
                                 show tfplan > tfplan.txt
