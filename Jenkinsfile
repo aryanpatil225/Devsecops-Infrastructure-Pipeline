@@ -40,14 +40,18 @@ pipeline {
                 echo '📝 Stage 3: Terraform Plan'
                 dir("${TERRAFORM_DIR}") {
                     sh '''
-                        apt-get update -y
-                        curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /tmp/hashicorp.gpg
-                        echo "deb [signed-by=/tmp/hashicorp.gpg] https://apt.releases.hashicorp.com $(. /etc/os-release && echo "$VERSION_ID") main" > /tmp/hashicorp.list
-                        apt-get update -y
-                        apt-get install -y terraform
-                        terraform init
-                        terraform validate
-                        terraform plan
+                        docker run --rm \\
+                          -v $(pwd):/tf -w /tf \\
+                          hashicorp/terraform:latest \\
+                          init
+                        docker run --rm \\
+                          -v $(pwd):/tf -w /tf \\
+                          hashicorp/terraform:latest \\
+                          validate
+                        docker run --rm \\
+                          -v $(pwd):/tf -w /tf \\
+                          hashicorp/terraform:latest \\
+                          plan
                     '''
                 }
                 echo '✅ Terraform plan complete'
@@ -64,4 +68,3 @@ pipeline {
         }
     }
 }
-
