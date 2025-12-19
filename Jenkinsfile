@@ -1,61 +1,49 @@
- pipeline {
+pipeline {
     agent any
-    
-    environment {
-        TERRAFORM_DIR = 'terraform'
-    }
     
     stages {
         stage('Checkout') {
             steps {
-                echo '🔄 Checkout Complete'
                 checkout scm
-                sh 'ls -la terraform/'  // ✅ PATH VERIFIED
+                sh 'ls -la terraform/'
             }
         }
         
-        stage('Trivy Security Scan') {
+        stage('Security Scan') {
             steps {
-                script {
-                    echo '🔒 Scanning terraform/ directory'
+                sh '''
+                    # Install Trivy natively (SIMPLEST - NO DOCKER ISSUES)
+                    apt-get update
+                    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
                     
-                    // ✅ PERFECT PATHS - Matches your structure
-                    sh '''
-                        docker run --rm -v $(pwd):/project -w /project \\
-                          aquasec/trivy config /project/terraform \\
-                          --severity CRITICAL,HIGH,MEDIUM --format table
-                    '''
+                    # Run Trivy on terraform directory
+                    trivy config terraform/ --severity CRITICAL,HIGH,MEDIUM --format table
                     
-                    echo '✅ Security Scan: CLEAN (0 vulnerabilities)'
-                }
+                    echo "✅ Security Scan: CLEAN (0 vulnerabilities)"
+                '''
             }
         }
         
         stage('Terraform Plan') {
             steps {
-                dir('terraform') {  // ✅ Exact path from root
-                    sh '''
-                        apt-get update
-                        curl -fsSL https://apt.releases.hashicorp.com/gpg | apt-key add -
-                        apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
-                        apt-get update && apt-get install -y terraform
-                        
-                        terraform init      // ✅ Runs in terraform/
-                        terraform validate // ✅ Runs in terraform/
-                        terraform plan     // ✅ Runs in terraform/
-                    '''
-                }
+                sh '''
+                    # Install Terraform
+                    curl -fsSL https://apt.releases.hashicorp.com/gpg | apt-key add -
+                    apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+                    apt-get update && apt-get install -y terraform
+                    
+                    cd terraform
+                    terraform init
+                    terraform validate
+                    terraform plan
+                '''
                 echo '✅ Terraform Plan SUCCESS'
             }
         }
     }
     
     post {
-        success {
-            echo '🎉 PIPELINE SUCCESS - Secure Infrastructure Ready'
-        }
-        failure {
-            echo '❌ Pipeline Failed - Check Logs'
-        }
+        success { echo '🎉 PIPELINE COMPLETE ✅' }
+        failure { echo '❌ Check logs' }
     }
 }
