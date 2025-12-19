@@ -52,7 +52,6 @@ pipeline {
                                     config /tf \
                                     --severity ${TRIVY_SEVERITY} \
                                     --format table \
-                                    --scanners misconfig \
                                     --exit-code ${SCAN_EXIT_CODE}
                             """,
                             returnStatus: true
