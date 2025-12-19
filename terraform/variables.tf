@@ -1,23 +1,28 @@
 variable "aws_region" {
-  description = "AWS region for deploying resources"
+  description = "AWS Region"
   type        = string
-  default     = "ap-south-1" # Mumbai region - closest to you
+  default     = "ap-south-1"
 }
 
 variable "ami_id" {
-  description = "AMI ID for Ubuntu 22.04 LTS in ap-south-1"
+  description = "Ubuntu Server 22.04 LTS AMI"
   type        = string
-  default     = "ami-0e670eb768a5fc3d4" # Ubuntu 22.04 LTS
+  default     = "ami-0e670eb768a5fc3d4"
 }
 
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string
-  default     = "t2.micro" # Free tier eligible
+  default     = "t2.micro"
 }
 
-variable "project_name" {
-  description = "Project name for resource tagging"
+variable "admin_ssh_cidr" {
+  description = "Admin SSH access - YOUR_PUBLIC_IP/32"
   type        = string
-  default     = "DevSecOps-Infrastructure-Pipeline"
+}
+
+variable "app_port" {
+  description = "Application port"
+  type        = number
+  default     = 8000
 }
