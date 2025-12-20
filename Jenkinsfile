@@ -54,16 +54,20 @@ pipeline {
                 sh 'ls -1 *.tf'
                 echo ''
                 
-                // Run Trivy scan - CORRECTED VERSION
+                // Verify files are readable
+                echo '📂 Verifying file contents...'
+                sh 'head -n 5 main.tf'
+                echo ''
+                
+                // Run Trivy scan - FIXED WITH EXPLICIT PATH
                 echo '🔐 Running Trivy misconfiguration scan...'
                 def trivyScanExitCode = sh(
                     script: '''
                         docker run --rm \
-                            -v $(pwd):/workspace \
-                            -w /workspace \
+                            -v $(pwd):/src \
                             aquasec/trivy:latest \
-                            fs . \
-                            --scanners misconfig \
+                            config /src \
+                            --tf-vars /src/terraform.tfvars \
                             --severity CRITICAL,HIGH,MEDIUM,LOW \
                             --format table \
                             --exit-code 1
