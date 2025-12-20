@@ -59,12 +59,12 @@ pipeline {
                         def trivyScanExitCode = sh(
                             script: '''
                                 docker run --rm \
-                                    -v $(pwd):/src \
+                                    -v $(pwd):/tf \
                                     aquasec/trivy:latest \
-                                    config /src \
+                                    config /tf \
                                     --severity CRITICAL,HIGH,MEDIUM,LOW \
                                     --format json \
-                                    --output /src/trivy-results.json
+                                    --output /tf/trivy-results.json
                             ''',
                             returnStatus: true
                         )
@@ -72,9 +72,9 @@ pipeline {
                         // Display results in table format
                         sh '''
                             docker run --rm \
-                                -v $(pwd):/src \
+                                -v $(pwd):/tf \
                                 aquasec/trivy:latest \
-                                config /src \
+                                config /tf \
                                 --severity CRITICAL,HIGH,MEDIUM,LOW \
                                 --format table
                         '''
