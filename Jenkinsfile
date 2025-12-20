@@ -4,6 +4,7 @@ pipeline {
     environment {
         TERRAFORM_VERSION = "1.6.0"
         TERRAFORM_DIR = "terraform"
+        AWS_DEFAULT_REGION = "ap-south-1"
     }
     
     stages {
@@ -157,102 +158,137 @@ pipeline {
         }
         
         stage('Stage 3: Terraform Plan') {
-            steps {
-                echo '=========================================='
-                echo '📝 STAGE 3: TERRAFORM PLAN'
-                echo '=========================================='
-                
-                script {
-                    dir(TERRAFORM_DIR) {
-                        // Verify files
-                        echo '📂 Verifying Terraform files...'
-                        sh 'pwd'
-                        sh 'ls -la *.tf'
-                        echo ''
-                        
-                        // Install Terraform if not present
-                        echo '📦 Setting up Terraform...'
-                        sh '''
-                            if ! command -v terraform &> /dev/null; then
-                                echo "Installing Terraform ${TERRAFORM_VERSION}..."
-                                
-                                # Remove broken hashicorp repository
-                                rm -f /etc/apt/sources.list.d/hashicorp.list
-                                
-                                # Install prerequisites
-                                apt-get update -qq
-                                apt-get install -y -qq wget unzip > /dev/null 2>&1
-                                
-                                # Download and install Terraform
-                                wget -q https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip
-                                unzip -q terraform_${TERRAFORM_VERSION}_linux_amd64.zip
-                                mv terraform /usr/local/bin/
-                                rm terraform_${TERRAFORM_VERSION}_linux_amd64.zip
-                                
-                                echo "✅ Terraform ${TERRAFORM_VERSION} installed"
-                            else
-                                echo "✅ Terraform already available"
-                            fi
-                            terraform version
-                        '''
-                        echo ''
-                        
-                        // Terraform Format Check
-                        echo '🎨 Step 1: Terraform Format Check'
-                        def fmtResult = sh(
-                            script: 'terraform fmt -check -diff',
-                            returnStatus: true
-                        )
-                        if (fmtResult == 0) {
-                            echo '✅ All files are properly formatted'
-                        } else {
-                            echo '⚠️  Some files need formatting (non-blocking)'
-                        }
-                        echo ''
-                        
-                        // Terraform Init
-                        echo '🔧 Step 2: Terraform Init'
-                        sh 'terraform init -no-color'
-                        echo '✅ Terraform initialized successfully'
-                        echo ''
-                        
-                        // Terraform Validate
-                        echo '✔️  Step 3: Terraform Validate'
-                        sh 'terraform validate -no-color'
-                        echo '✅ Configuration is valid'
-                        echo ''
-                        
-                        // Terraform Plan
-                        echo '📊 Step 4: Terraform Plan'
-                        sh 'terraform plan -no-color -out=tfplan'
-                        echo ''
-                        echo '✅ Terraform plan created successfully'
-                        echo ''
-                        
-                        // Save plan output
-                        echo '💾 Step 5: Save Plan Output'
-                        sh 'terraform show -no-color tfplan > tfplan.txt'
-                        echo '✅ Plan saved to terraform/tfplan.txt'
-                        echo ''
-                        
-                        echo '=========================================='
-                        echo '📋 TERRAFORM PLAN SUMMARY'
-                        echo '=========================================='
-                        echo 'ℹ️  Terraform plan created and saved'
-                        echo 'ℹ️  Plan file: terraform/tfplan'
-                        echo 'ℹ️  Plan output: terraform/tfplan.txt'
-                        echo ''
-                        echo '🚀 TO APPLY MANUALLY:'
-                        echo '   cd terraform'
-                        echo '   terraform apply tfplan'
-                        echo ''
+    steps {
+        echo '=========================================='
+        echo '📝 STAGE 3: TERRAFORM PLAN'
+        echo '=========================================='
+        
+        withCredentials([
+            usernamePassword(
+                credentialsId: 'aws-credentials',
+                usernameVariable: 'AWS_ACCESS_KEY_ID',
+                passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+            )
+        ]) {
+            script {
+                dir(TERRAFORM_DIR) {
+                    // Verify files
+                    echo '📂 Verifying Terraform files...'
+                    sh 'pwd'
+                    sh 'ls -la *.tf'
+                    echo ''
+                    
+                    // Install Terraform if not present
+                    echo '📦 Setting up Terraform...'
+                    sh '''
+                        if ! command -v terraform &> /dev/null; then
+                            echo "Installing Terraform ${TERRAFORM_VERSION}..."
+                            
+                            # Remove broken hashicorp repository
+                            rm -f /etc/apt/sources.list.d/hashicorp.list
+                            
+                            # Install prerequisites
+                            apt-get update -qq
+                            apt-get install -y -qq wget unzip > /dev/null 2>&1
+                            
+                            # Download and install Terraform
+                            wget -q https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+                            unzip -q terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+                            mv terraform /usr/local/bin/
+                            rm terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+                            
+                            echo "✅ Terraform ${TERRAFORM_VERSION} installed"
+                        else
+                            echo "✅ Terraform already available"
+                        fi
+                        terraform version
+                    '''
+                    echo ''
+                    
+                    // Set AWS credentials for Terraform
+                    echo '🔐 Configuring AWS credentials...'
+                    sh '''
+                        export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+                        export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                        export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+                        echo "✅ AWS credentials configured"
+                        echo "Region: ${AWS_DEFAULT_REGION}"
+                    '''
+                    echo ''
+                    
+                    // Terraform Format Check
+                    echo '🎨 Step 1: Terraform Format Check'
+                    def fmtResult = sh(
+                        script: 'terraform fmt -check -diff',
+                        returnStatus: true
+                    )
+                    if (fmtResult == 0) {
+                        echo '✅ All files are properly formatted'
+                    } else {
+                        echo '⚠️  Some files need formatting (non-blocking)'
                     }
+                    echo ''
+                    
+                    // Terraform Init
+                    echo '🔧 Step 2: Terraform Init'
+                    sh '''
+                        export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+                        export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                        export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+                        terraform init -no-color
+                    '''
+                    echo '✅ Terraform initialized successfully'
+                    echo ''
+                    
+                    // Terraform Validate
+                    echo '✔️  Step 3: Terraform Validate'
+                    sh '''
+                        export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+                        export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                        export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+                        terraform validate -no-color
+                    '''
+                    echo '✅ Configuration is valid'
+                    echo ''
+                    
+                    // Terraform Plan
+                    echo '📊 Step 4: Terraform Plan'
+                    sh '''
+                        export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+                        export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+                        export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+                        terraform plan -no-color -out=tfplan
+                    '''
+                    echo ''
+                    echo '✅ Terraform plan created successfully'
+                    echo ''
+                    
+                    // Save plan output
+                    echo '💾 Step 5: Save Plan Output'
+                    sh 'terraform show -no-color tfplan > tfplan.txt'
+                    echo '✅ Plan saved to terraform/tfplan.txt'
+                    echo ''
+                    
+                    echo '=========================================='
+                    echo '📋 TERRAFORM PLAN SUMMARY'
+                    echo '=========================================='
+                    echo 'ℹ️  Terraform plan created and saved'
+                    echo 'ℹ️  Plan file: terraform/tfplan'
+                    echo 'ℹ️  Plan output: terraform/tfplan.txt'
+                    echo ''
+                    echo '🚀 TO APPLY MANUALLY:'
+                    echo '   cd terraform'
+                    echo '   terraform apply tfplan'
+                    echo ''
                 }
-                
-                echo '✅ Terraform Plan Stage Complete!'
-                echo ''
             }
         }
+        
+        echo '✅ Terraform Plan Stage Complete!'
+        echo ''
+    }
+}
+
     }
     
     post {
