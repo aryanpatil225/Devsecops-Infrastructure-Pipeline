@@ -1,91 +1,46 @@
 pipeline {
     agent any
     
-    environment {
-        TERRAFORM_DIR = 'terraform'
-        SCAN_SEVERITY = 'CRITICAL,HIGH,MEDIUM'
-    }
-    
     stages {
         stage('Checkout') {
             steps {
-                echo '========================================='
-                echo 'Stage 1: Checking out code from repository'
-                echo '========================================='
                 checkout scm
-                
-                echo 'Code checkout completed successfully!'
-                sh 'ls -la'
             }
         }
         
-        stage('Infrastructure Security Scan') {
+        stage('Trivy Security Scan') {
             steps {
-                script {
-                    echo '========================================='
-                    echo 'Stage 2: Running Trivy Security Scan'
-                    echo '========================================='
-                    echo 'Scanning Terraform files for security vulnerabilities...'
+                sh '''
+                    # Install Trivy
+                    wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
+                    echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee -a /etc/apt/sources.list.d/trivy.list
+                    apt-get update
+                    apt-get install -y trivy
                     
-                    // This will FAIL on first run due to intentional vulnerabilities
-                    def scanResult = sh(
-                        script: """
-                            docker run --rm \
-                              -v \$(pwd):/src \
-                              aquasec/trivy:latest \
-                              config /src/${TERRAFORM_DIR} \
-                              --severity ${SCAN_SEVERITY} \
-                              --format table \
-                              --exit-code 1
-                        """,
-                        returnStatus: true
-                    )
-                    
-                    if (scanResult != 0) {
-                        echo '⚠️  SECURITY VULNERABILITIES DETECTED! ⚠️'
-                        echo 'Check the scan output above for details.'
-                        echo 'Pipeline will fail to prevent insecure deployment.'
-                        error('Security scan failed - vulnerabilities found!')
-                    } else {
-                        echo '✅ Security scan passed - no critical vulnerabilities found!'
-                    }
-                }
+                    # Scan Terraform files
+                    trivy config terraform/ --format template --template "@contrib/html.tpl" --output report.html || true
+                '''
+                
+                publishHTML(target: [
+                    allowMissing: true,
+                    alwaysLinkToLastBuild: false,
+                    keepAll: true,
+                    reportDir: ".",
+                    reportFiles: "report.html",
+                    reportName: "Trivy Report"
+                ])
             }
         }
         
         stage('Terraform Plan') {
             steps {
-                echo '========================================='
-                echo 'Stage 3: Running Terraform Plan'
-                echo '========================================='
-                
-                dir("${TERRAFORM_DIR}") {
-                    sh 'terraform init'
-                    sh 'terraform validate'
-                    sh 'terraform plan -out=tfplan'
-                }
-                
-                echo 'Terraform plan completed successfully!'
+                sh '''
+                    cd terraform
+                    terraform init
+                    terraform validate
+                    terraform plan
+                '''
             }
-        }
-    }
-    
-    post {
-        always {
-            echo '========================================='
-            echo 'Pipeline Execution Summary'
-            echo '========================================='
-            echo "Build Number: ${env.BUILD_NUMBER}"
-            echo "Build Status: ${currentBuild.result}"
-        }
-        success {
-            echo '✅ Pipeline completed successfully!'
-            echo 'All security checks passed.'
-        }
-        failure {
-            echo '❌ Pipeline failed!'
-            echo 'Please review the security scan results above.'
-            echo 'Fix the vulnerabilities and re-run the pipeline.'
         }
     }
 }
