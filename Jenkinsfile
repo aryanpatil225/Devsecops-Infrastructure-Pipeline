@@ -87,23 +87,25 @@ pipeline {
                 echo '🔍 Trivy JSON Scan'
                 sh """
                     docker run --rm \
-                        -v ${workspacePath}:/src \
-                        aquasec/trivy:latest \
-                        config /src \
-                        --severity CRITICAL,HIGH,MEDIUM,LOW \
-                        --format json \
-                        --output /src/trivy-results.json \
-                        --exit-code 0
+                    -v /var/jenkins_home/workspace/DevSecOps-Infrastructure-Pipeline:/src \
+                    aquasec/trivy:latest \
+                config /src/terraform \
+                 --severity CRITICAL,HIGH,MEDIUM,LOW \
+                   --format json \
+                 --output /src/terraform/trivy-results.json \
+                 --exit-code 0
+
                 """
                 
                 echo '📊 Trivy Table Scan - VULNERABILITIES HERE!'
                 sh """
                     docker run --rm \
-                        -v ${workspacePath}:/src \
-                        aquasec/trivy:latest \
-                        config /src \
-                        --severity CRITICAL,HIGH,MEDIUM,LOW \
-                        --format table
+                        -v /var/jenkins_home/workspace/DevSecOps-Infrastructure-Pipeline:/src \
+                    aquasec/trivy:latest \
+                   config /src/terraform \
+                  --severity CRITICAL,HIGH,MEDIUM,LOW \
+                   --format table
+
                 """
                 
                 echo '=========================================='
