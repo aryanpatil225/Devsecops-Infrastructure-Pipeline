@@ -34,135 +34,76 @@ pipeline {
         }
         
         stage('Stage 2: Infrastructure Security Scan') {
-            steps {
+    steps {
+        echo '=========================================='
+        echo '🔒 STAGE 2: INFRASTRUCTURE SECURITY SCAN'
+        echo '=========================================='
+        
+        script {
+            dir(TERRAFORM_DIR) {
+                echo '🔍 Scanning Terraform configurations for security issues...'
+                echo ''
+                
+                // Count terraform files
+                def tfFileCount = sh(
+                    script: 'ls -1 *.tf 2>/dev/null | wc -l',
+                    returnStdout: true
+                ).trim()
+                
+                echo "📋 Found ${tfFileCount} Terraform configuration files"
+                sh 'ls -1 *.tf'
+                echo ''
+                
+                // Run Trivy scan - FIXED VERSION
+                echo '🔐 Running Trivy misconfiguration scan...'
+                def trivyScanExitCode = sh(
+                    script: '''
+                        docker run --rm \
+                            -v $(pwd):/workspace \
+                            -w /workspace \
+                            aquasec/trivy:latest \
+                            config . \
+                            --severity CRITICAL,HIGH,MEDIUM,LOW \
+                            --format table \
+                            --exit-code 1
+                    ''',
+                    returnStatus: true
+                )
+                
+                echo ''
                 echo '=========================================='
-                echo '🔒 STAGE 2: INFRASTRUCTURE SECURITY SCAN'
+                echo '📊 SECURITY SCAN REPORT'
                 echo '=========================================='
                 
-                script {
-                    dir(TERRAFORM_DIR) {
-                        echo '🔍 Scanning Terraform configurations for security issues...'
-                        echo ''
-                        
-                        // Count terraform files
-                        def tfFileCount = sh(
-                            script: 'ls -1 *.tf 2>/dev/null | wc -l',
-                            returnStdout: true
-                        ).trim()
-                        
-                        echo "📋 Found ${tfFileCount} Terraform configuration files"
-                        sh 'ls -1 *.tf'
-                        echo ''
-                        
-                        // Run Trivy scan with JSON output to parse results
-                        echo '🔐 Running Trivy misconfiguration scan...'
-                        def trivyScanExitCode = sh(
-                            script: '''
-                                docker run --rm \
-                                    -v $(pwd):/tf \
-                                    aquasec/trivy:latest \
-                                    config /tf \
-                                    --severity CRITICAL,HIGH,MEDIUM,LOW \
-                                    --format json \
-                                    --output /tf/trivy-results.json
-                            ''',
-                            returnStatus: true
-                        )
-                        
-                        // Display results in table format
-                        sh '''
-                            docker run --rm \
-                                -v $(pwd):/tf \
-                                aquasec/trivy:latest \
-                                config /tf \
-                                --severity CRITICAL,HIGH,MEDIUM,LOW \
-                                --format table
-                        '''
-                        
-                        echo ''
-                        echo '=========================================='
-                        echo '📊 SECURITY SCAN REPORT'
-                        echo '=========================================='
-                        
-                        // Parse JSON results to count vulnerabilities
-                        def resultsExist = fileExists('trivy-results.json')
-                        def criticalCount = 0
-                        def highCount = 0
-                        def mediumCount = 0
-                        def lowCount = 0
-                        def totalIssues = 0
-                        
-                        if (resultsExist) {
-                            def jsonResults = readJSON file: 'trivy-results.json'
-                            
-                            if (jsonResults.Results) {
-                                jsonResults.Results.each { result ->
-                                    if (result.Misconfigurations) {
-                                        result.Misconfigurations.each { issue ->
-                                            totalIssues++
-                                            switch(issue.Severity) {
-                                                case 'CRITICAL':
-                                                    criticalCount++
-                                                    break
-                                                case 'HIGH':
-                                                    highCount++
-                                                    break
-                                                case 'MEDIUM':
-                                                    mediumCount++
-                                                    break
-                                                case 'LOW':
-                                                    lowCount++
-                                                    break
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        
-                        echo "📊 Scan Results:"
-                        echo "   🔴 CRITICAL: ${criticalCount}"
-                        echo "   🟠 HIGH:     ${highCount}"
-                        echo "   🟡 MEDIUM:   ${mediumCount}"
-                        echo "   🟢 LOW:      ${lowCount}"
-                        echo "   ━━━━━━━━━━━━━━━━━━━━━"
-                        echo "   📋 TOTAL:    ${totalIssues}"
-                        echo ''
-                        
-                        if (totalIssues == 0) {
-                            echo '✅ SUCCESS: Zero security issues detected!'
-                            echo '✅ All Terraform configurations passed security checks'
-                            echo '✅ Your infrastructure code is secure!'
-                        } else {
-                            echo "⚠️  WARNING: ${totalIssues} security issue(s) detected!"
-                            echo ''
-                            echo '🔧 RECOMMENDED ACTIONS:'
-                            echo '   1. Review the scan output above for details'
-                            echo '   2. Fix the identified issues in your Terraform files'
-                            echo '   3. Common issues to check:'
-                            echo '      - Unencrypted storage (S3, EBS)'
-                            echo '      - Open security groups (0.0.0.0/0)'
-                            echo '      - Missing encryption at rest'
-                            echo '      - Public access to sensitive resources'
-                            echo '   4. Re-run this pipeline after fixes'
-                            echo ''
-                            
-                            // Only fail on CRITICAL and HIGH severity
-                            if (criticalCount > 0 || highCount > 0) {
-                                error("❌ Security scan failed! Found ${criticalCount} CRITICAL and ${highCount} HIGH severity issues.")
-                            } else {
-                                echo '⚠️  Only MEDIUM/LOW issues found - Pipeline will continue'
-                            }
-                        }
-                        
-                        echo ''
-                        echo '✅ Security Scan Stage Complete!'
-                        echo ''
-                    }
+                if (trivyScanExitCode == 0) {
+                    echo '✅ SUCCESS: Zero security issues detected!'
+                    echo '✅ All Terraform configurations passed security checks'
+                    echo '✅ Your infrastructure code is secure!'
+                } else {
+                    echo '⚠️  WARNING: Security issues detected!'
+                    echo ''
+                    echo '🔧 RECOMMENDED ACTIONS:'
+                    echo '   1. Review the scan output above for details'
+                    echo '   2. Fix the identified issues in your Terraform files'
+                    echo '   3. Common issues to check:'
+                    echo '      - Unencrypted storage (S3, EBS)'
+                    echo '      - Open security groups (0.0.0.0/0)'
+                    echo '      - Missing encryption at rest'
+                    echo '      - Public access to sensitive resources'
+                    echo '   4. Re-run this pipeline after fixes'
+                    echo ''
+                    
+                    error('❌ Security scan failed! Please fix the issues and re-run.')
                 }
+                
+                echo ''
+                echo '✅ Security Scan Stage Complete!'
+                echo ''
             }
         }
-        
+    }
+}
+
         stage('Stage 3: Terraform Plan') {
             steps {
                 echo '=========================================='
