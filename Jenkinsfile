@@ -59,97 +59,23 @@ pipeline {
 
        stage('Stage 2: Infrastructure Security Scan') {
     steps {
-        echo '=========================================='
-        echo '🔒 STAGE 2: INFRASTRUCTURE SECURITY SCAN'
-        echo '=========================================='
-        
         script {
-            dir(TERRAFORM_DIR) {
-                // Get ABSOLUTE path for Docker
-                def workspacePath = pwd()
-                echo "📂 ABSOLUTE PATH: ${workspacePath}"
+            dir(TERRAFORM_DIR) {  // ← Change to terraform directory FIRST
+                echo '🔍 Scanning Terraform files...'
+                sh 'ls -la *.tf'  // Verify files exist
                 
-                // Clean state
-                sh 'rm -rf .terraform .terraform.lock.hcl tfplan* || true'
-                sh 'ls -la *.tf'
-                
-                // Terraform Init
-                echo '🔧 Terraform Init'
-                sh """
+                // Scan current directory (where .tf files are)
+                sh '''
                     docker run --rm \
-  -v "$WORKSPACE/terraform":/workspace \
-  -w /workspace \
-  hashicorp/terraform:1.6.0 \
-  init -backend=false -no-color
-
-                """
-                
-                // TRIVY with ABSOLUTE PATH (FIXED!)
-                echo '🔍 Trivy JSON Scan'
-                sh """
-                    docker run --rm \
-  -v "$WORKSPACE":/src \
-  aquasec/trivy:latest \
-  config /src/terraform \
-  --severity CRITICAL,HIGH,MEDIUM,LOW \
-  --format json \
-  --output /src/terraform/trivy-results.json \
-  --exit-code 0
-
-
-                """
-                
-                echo '📊 Trivy Table Scan - VULNERABILITIES HERE!'
-                sh """
-                    docker run --rm \
-  -v "$WORKSPACE":/src \
-  aquasec/trivy:latest \
-  config /src/terraform \
-  --severity CRITICAL,HIGH,MEDIUM,LOW \
-  --format table
-
-
-                """
-                
-                echo '=========================================='
-                echo '📈 SECURITY SCAN SUMMARY'
-                echo '=========================================='
-                
-                // Parse JSON
-                def criticalCount = 0, highCount = 0, mediumCount = 0, lowCount = 0, totalIssues = 0
-                
-                if (fileExists('trivy-results.json')) {
-                    def jsonResults = readJSON file: 'trivy-results.json'
-                    if (jsonResults?.Results) {
-                        jsonResults.Results.each { result ->
-                            if (result.Misconfigurations) {
-                                result.Misconfigurations.each { issue ->
-                                    totalIssues++
-                                    switch(issue.Severity) {
-                                        case 'CRITICAL': criticalCount++; break
-                                        case 'HIGH': highCount++; break
-                                        case 'MEDIUM': mediumCount++; break
-                                        case 'LOW': lowCount++; break
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // SHOW COUNTS
-                echo "🔴 CRITICAL: ${criticalCount}"
-                echo "🟠 HIGH:     ${highCount}"
-                echo "🟡 MEDIUM:   ${mediumCount}"
-                echo "🟢 LOW:      ${lowCount}"
-                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                echo "📊 TOTAL:    ${totalIssues}"
-                
-                if (totalIssues > 0 && highCount > 0) {
-                    error("❌ FAILED: ${highCount} HIGH vulnerabilities!\n📸 Screenshot for assignment ✅")
-                }
-                
-                echo '✅ Security scan PASSED'
+                        -v "$(pwd)":/workspace:ro \
+                        -w /workspace \
+                        aquasec/trivy:latest \
+                        config . \
+                        --scanners misconfig \
+                        --severity CRITICAL,HIGH,MEDIUM \
+                        --format table \
+                        --exit-code 1
+                '''
             }
         }
     }
