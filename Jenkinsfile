@@ -89,30 +89,30 @@ pipeline {
                         validate -no-color
                 '''
                 
-                echo '🔍 Step 4: Trivy Scan (JSON)'
-                sh '''
-                    docker run --rm \
-  -v "$WORKSPACE/terraform":/workspace \
-  -w /workspace \
-  aquasec/trivy:latest \
-  config . \
-  --severity CRITICAL,HIGH,MEDIUM,LOW \
-  --format json \
-  --output trivy-results.json
+                // REPLACE your Trivy commands with THESE:
+echo '🔍 Trivy JSON Scan'
+sh """
+    docker run --rm \\
+        -v ${tfPath}:/workspace \\
+        -w /workspace \\
+        aquasec/trivy:latest \\
+        config . \\
+        --severity CRITICAL,HIGH,MEDIUM,LOW \\
+        --format json \\
+        --output trivy-results.json
+"""
 
-                '''
-                
-                echo '📊 Step 5: Trivy Scan (Table) - VULNERABILITIES HERE!'
-                sh '''
-                    docker run --rm \
-  -v "$WORKSPACE/terraform":/workspace \
-  -w /workspace \
-  aquasec/trivy:latest \
-  config . \
-  --severity CRITICAL,HIGH,MEDIUM,LOW \
-  --format table
+echo '📊 Trivy Table Scan'
+sh """
+    docker run --rm \\
+        -v ${tfPath}:/workspace \\
+        -w /workspace \\
+        aquasec/trivy:latest \\
+        config . \\
+        --severity CRITICAL,HIGH,MEDIUM,LOW \\
+        --format table
+"""
 
-                '''
                 
                 echo '=========================================='
                 echo '📈 SECURITY SCAN SUMMARY'
