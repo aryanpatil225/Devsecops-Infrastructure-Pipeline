@@ -33,7 +33,7 @@ pipeline {
             }
         }
         
-        stage('Stage 2: Infrastructure Security Scan') {
+       stage('Stage 2: Infrastructure Security Scan') {
     steps {
         echo '=========================================='
         echo '🔒 STAGE 2: INFRASTRUCTURE SECURITY SCAN'
@@ -54,7 +54,7 @@ pipeline {
                 sh 'ls -1 *.tf'
                 echo ''
                 
-                // Run Trivy scan - FIXED VERSION
+                // Run Trivy scan - CORRECTED VERSION
                 echo '🔐 Running Trivy misconfiguration scan...'
                 def trivyScanExitCode = sh(
                     script: '''
@@ -62,7 +62,8 @@ pipeline {
                             -v $(pwd):/workspace \
                             -w /workspace \
                             aquasec/trivy:latest \
-                            config . \
+                            fs . \
+                            --scanners misconfig \
                             --severity CRITICAL,HIGH,MEDIUM,LOW \
                             --format table \
                             --exit-code 1
