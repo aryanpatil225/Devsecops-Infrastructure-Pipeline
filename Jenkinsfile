@@ -54,16 +54,15 @@ pipeline {
                 sh 'ls -1 *.tf'
                 echo ''
                 
-                // Run Checkov scan with proper output and NO --compact flag
-                echo '🔐 Running Checkov security scan...'
-                def checkovExitCode = sh(
+                // Run TFSec scan (Terraform-specific security scanner)
+                echo '🔐 Running TFSec security scan...'
+                def tfsecExitCode = sh(
                     script: '''
                         docker run --rm \
-                            -v $(pwd):/tf \
-                            bridgecrew/checkov:latest \
-                            -d /tf \
-                            --framework terraform \
-                            --output cli
+                            -v $(pwd):/src \
+                            aquasec/tfsec:latest /src \
+                            --format default \
+                            --minimum-severity MEDIUM
                     ''',
                     returnStatus: true
                 )
@@ -72,32 +71,30 @@ pipeline {
                 echo '=========================================='
                 echo '📊 SECURITY SCAN REPORT'
                 echo '=========================================='
-                echo "Exit Code: ${checkovExitCode}"
+                echo "Exit Code: ${tfsecExitCode}"
                 echo ''
                 
-                if (checkovExitCode == 0) {
+                if (tfsecExitCode == 0) {
                     echo '✅ SUCCESS: Zero security issues detected!'
                     echo '✅ All Terraform configurations passed security checks'
                     echo '✅ Your infrastructure code is secure!'
                 } else {
-                    echo '⚠️  WARNING: Security issues detected!'
+                    echo '⚠️  CRITICAL: Security vulnerabilities detected!'
                     echo ''
-                    echo "📋 Checkov found ${checkovExitCode > 0 ? 'FAILED' : 'issues in'} your configuration"
+                    echo '🔧 REQUIRED FIXES:'
+                    echo '   1. Review the TFSec findings above'
+                    echo '   2. Fix ALL security issues before deployment'
+                    echo '   3. Most common issue in your code:'
+                    echo '      ❌ SSH (port 22) is open to 0.0.0.0/0'
                     echo ''
-                    echo '🔧 RECOMMENDED ACTIONS:'
-                    echo '   1. Review the detailed scan output above'
-                    echo '   2. Fix the identified security issues:'
-                    echo '      ❌ SSH port 22 open to 0.0.0.0/0 (entire internet)'
-                    echo '      ❌ Unencrypted resources'
-                    echo '      ❌ Overly permissive security groups'
-                    echo '   3. Common fixes:'
-                    echo '      - Restrict SSH to specific IP: cidr_blocks = [var.admin_ssh_cidr]'
-                    echo '      - Enable encryption on all storage'
-                    echo '      - Use least-privilege access'
-                    echo '   4. Re-run pipeline after fixes'
+                    echo '💡 Quick Fix for SSH vulnerability:'
+                    echo '   In main.tf, change:'
+                    echo '   cidr_blocks = ["0.0.0.0/0"]  # BAD'
+                    echo '   TO:'
+                    echo '   cidr_blocks = [var.admin_ssh_cidr]  # GOOD'
                     echo ''
                     
-                    error('❌ SECURITY SCAN FAILED - Fix vulnerabilities before proceeding!')
+                    error('❌ SECURITY SCAN FAILED - Pipeline blocked until vulnerabilities are fixed!')
                 }
                 
                 echo ''
