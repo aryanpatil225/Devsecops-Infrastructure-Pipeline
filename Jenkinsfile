@@ -54,23 +54,17 @@ pipeline {
                 sh 'ls -1 *.tf'
                 echo ''
                 
-                // Verify files are readable
-                echo '📂 Verifying file contents...'
-                sh 'head -n 5 main.tf'
-                echo ''
-                
-                // Run Trivy scan - FIXED WITH EXPLICIT PATH
-                echo '🔐 Running Trivy misconfiguration scan...'
-                def trivyScanExitCode = sh(
+                // Run Checkov scan (more reliable for Terraform)
+                echo '🔐 Running Checkov security scan...'
+                def checkovExitCode = sh(
                     script: '''
                         docker run --rm \
-                            -v $(pwd):/src \
-                            aquasec/trivy:latest \
-                            config /src \
-                            --tf-vars /src/terraform.tfvars \
-                            --severity CRITICAL,HIGH,MEDIUM,LOW \
-                            --format table \
-                            --exit-code 1
+                            -v $(pwd):/tf \
+                            bridgecrew/checkov:latest \
+                            -d /tf \
+                            --framework terraform \
+                            --compact \
+                            --quiet
                     ''',
                     returnStatus: true
                 )
@@ -80,7 +74,7 @@ pipeline {
                 echo '📊 SECURITY SCAN REPORT'
                 echo '=========================================='
                 
-                if (trivyScanExitCode == 0) {
+                if (checkovExitCode == 0) {
                     echo '✅ SUCCESS: Zero security issues detected!'
                     echo '✅ All Terraform configurations passed security checks'
                     echo '✅ Your infrastructure code is secure!'
