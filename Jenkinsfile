@@ -2,106 +2,107 @@ pipeline {
     agent any
     
     environment {
-        TERRAFORM_DIR = "terraform"
+        TERRAFORM_VERSION = "1.6.0"
+        AWS_CREDENTIALS = credentials('aws-credentials')
     }
     
     stages {
-        stage('Checkout') {
+        stage('1. Checkout') {
             steps {
+                echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+                echo '📥 Stage 1: Checkout'
+                echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
                 checkout scm
-                echo "✅ Source code pulled"
+                sh 'ls -la terraform/'
             }
         }
         
-        stage('Terraform Format & Validate') {
+        stage('2. Security Scan') {
             steps {
-                dir(TERRAFORM_DIR) {
-                    sh 'terraform init'
-                    sh 'terraform fmt -check || terraform fmt'
-                    sh 'terraform validate'
-                    echo "✅ Terraform configuration valid"
+                echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+                echo '🔒 Stage 2: Security Scan'
+                echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+                
+                script {
+                    dir('terraform') {
+                        // Run TFSec scan
+                        def scanExit = sh(
+                            script: '''
+                                docker run --rm -v $(pwd):/src aquasec/tfsec:latest /src \
+                                    --format lovely --minimum-severity LOW --no-color
+                            ''',
+                            returnStatus: true
+                        )
+                        
+                        echo "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                        
+                        if (scanExit == 0) {
+                            echo '✅ Security Scan: PASSED'
+                            echo '✅ Zero critical issues found'
+                        } else {
+                            echo '❌ Security Scan: FAILED'
+                            echo '⚠️  Vulnerabilities detected above'
+                            echo '📝 Fix issues and re-run pipeline'
+                            error('Security vulnerabilities found!')
+                        }
+                        
+                        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    }
                 }
             }
         }
         
-        stage('Security Scan - Trivy') {
+        stage('3. Terraform Plan') {
             steps {
-                dir(TERRAFORM_DIR) {
-                    sh '''
-                        echo "🔍 Scanning for vulnerabilities..."
-                        docker run --rm -v $(pwd):/scan aquasec/trivy:latest \
-                            config /scan --severity CRITICAL,HIGH --format table
-                    '''
+                echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+                echo '📝 Stage 3: Terraform Plan'
+                echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+                
+                script {
+                    dir('terraform') {
+                        // Install Terraform
+                        sh '''
+                            if ! command -v terraform &> /dev/null; then
+                                apt-get update -qq
+                                apt-get install -y -qq wget unzip
+                                wget -q https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+                                unzip -q terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+                                mv terraform /usr/local/bin/
+                                rm terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+                            fi
+                        '''
+                        
+                        // Terraform commands
+                        sh 'terraform init -no-color'
+                        sh 'terraform validate -no-color'
+                        
+                        sh '''
+                            export AWS_ACCESS_KEY_ID="${AWS_CREDENTIALS_USR}"
+                            export AWS_SECRET_ACCESS_KEY="${AWS_CREDENTIALS_PSW}"
+                            export AWS_DEFAULT_REGION="ap-south-1"
+                            terraform plan -no-color -out=tfplan
+                        '''
+                        
+                        echo '\n✅ Terraform plan created: terraform/tfplan'
+                    }
                 }
-            }
-        }
-        
-        stage('Terraform Plan') {
-            steps {
-                dir(TERRAFORM_DIR) {
-                    sh '''
-                        echo "📋 Generating terraform plan..."
-                        terraform plan -out=tfplan
-                        terraform show -no-color tfplan > tfplan.txt
-                        echo "✅ Plan ready"
-                    '''
-                }
-            }
-        }
-        
-        stage('Docker Build & Scan') {
-            steps {
-                sh '''
-                    echo "🐳 Building Docker image..."
-                    docker build -t app:latest .
-                    
-                    echo "🔍 Scanning Docker image for CVEs..."
-                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-                        aquasec/trivy:latest image --severity CRITICAL,HIGH app:latest
-                    
-                    echo "✅ Docker image scanned"
-                '''
             }
         }
     }
     
     post {
         success {
-            echo """
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            ✅ PIPELINE PASSED
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            
-            ✓ Source code valid
-            ✓ Terraform validated
-            ✓ Security scan passed
-            ✓ Docker image scanned
-            ✓ Plan generated
-            
-            Next: terraform apply tfplan
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            """
+            echo '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            echo '✅ PIPELINE SUCCEEDED'
+            echo "Build #${env.BUILD_NUMBER}"
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
         }
-        
         failure {
-            echo """
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            ❌ PIPELINE FAILED
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            
-            Review errors above:
-            • Terraform validation error?
-            • Security vulnerabilities found?
-            • Docker CVEs detected?
-            
-            Fix and push again
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            """
-        }
-        
-        always {
-            archiveArtifacts artifacts: 'terraform/tfplan.txt', allowEmptyArchive: true
-            cleanWs()
+            echo '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            echo '❌ PIPELINE FAILED'
+            echo "Build #${env.BUILD_NUMBER}"
+            echo "Failed at: ${env.STAGE_NAME}"
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
         }
     }
 }
