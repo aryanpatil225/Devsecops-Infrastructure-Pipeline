@@ -175,19 +175,21 @@ resource "aws_security_group" "web_sg" {
 
   # ✅ EGRESS - LEAST PRIVILEGE (Trivy PASS)
   egress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "HTTPS - Package managers (apt, pip, npm)"
-  }
-  egress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "HTTP - Package downloads"
-  }
+  from_port   = 443
+  to_port     = 443
+  protocol    = "tcp"
+  cidr_blocks = ["0.0.0.0/0"]
+  description = "HTTPS - apt/yum/pip updates"
+}
+
+egress {
+  from_port   = 80
+  to_port     = 80
+  protocol    = "tcp"
+  cidr_blocks = ["0.0.0.0/0"]
+  description = "HTTP - package downloads"
+}
+
   egress {
     from_port   = 9418
     to_port     = 9418
@@ -196,13 +198,12 @@ resource "aws_security_group" "web_sg" {
     description = "Git protocol"
   }
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    self        = true
-    description = "Internal security group traffic"
-  }
-
+  from_port   = 0
+  to_port     = 0
+  protocol    = "-1"
+  self        = true
+  description = "Internal SG communication"
+}
   tags = {
     Name = "secure-web-sg"
     Security = "Trivy-Compliant-v1.0"
