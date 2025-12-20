@@ -171,7 +171,7 @@ resource "aws_security_group" "web_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]  # ❌ OPEN TO ENTIRE WORLD!
+    cidr_blocks = ["0.0.0.0/0"]  
   }
 
   # Application port access
@@ -229,7 +229,7 @@ resource "aws_instance" "web" {
   root_block_device {
     volume_size           = 10
     volume_type           = "gp3"
-    encrypted             = true
+    encrypted             = false
     delete_on_termination = true
   }
 
