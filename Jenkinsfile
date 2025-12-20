@@ -4,12 +4,6 @@ pipeline {
     environment {
         TERRAFORM_VERSION = "1.6.0"
         TERRAFORM_DIR = "terraform"
-        
-        // ============================================
-        // METHOD 1: AWS Credentials from Jenkins
-        // ============================================
-        // This pulls credentials from Jenkins Credentials store
-        // Make sure you've added credentials with ID 'aws-credentials'
         AWS_CREDENTIALS = credentials('aws-credentials')
     }
     
@@ -32,144 +26,159 @@ pipeline {
                 echo ''
             }
         }
-        stage('DEBUG: Terraform Files') {
-    steps {
-        echo '=========================================='
-        echo '🔍 DEBUG: CHECK TERRAFORM FILES'
-        echo '=========================================='
         
-        dir(TERRAFORM_DIR) {
-            echo '📁 Directory listing:'
-            sh 'ls -la'
-            
-            echo '📄 main.tf first 30 lines:'
-            sh 'head -30 main.tf'
-            
-            echo '📄 variables.tf content:'
-            sh 'cat variables.tf || echo "MISSING!"'
-            
-            echo '🧪 Test terraform fmt:'
-            sh '''
-                docker run --rm -v $(pwd):/workspace -w /workspace \
-                hashicorp/terraform:1.6.0 fmt -check || echo "FMT OK"
-            '''
+        stage('DEBUG: Verify Files & Paths') {
+            steps {
+                echo '=========================================='
+                echo '🔍 DEBUG: FILES & PATHS VERIFICATION'
+                echo '=========================================='
+                
+                // Check workspace structure
+                echo '📂 ROOT WORKSPACE:'
+                sh 'ls -la'
+                
+                echo '📂 TERRAFORM DIR:'
+                sh 'ls -la terraform/'
+                sh 'ls -la terraform/*.tf || echo "NO .tf FILES!"'
+                
+                // Get absolute paths
+                script {
+                    dir('terraform') {
+                        def tfPath = pwd()
+                        echo "✅ ABSOLUTE TF PATH: ${tfPath}"
+                        sh "ls -la ${tfPath}/*.tf || echo 'TF FILES MISSING!'"
+                    }
+                }
+                
+                // Test Docker mount IMMEDIATELY
+                echo '🧪 TEST DOCKER MOUNT:'
+                sh '''
+                    docker run --rm -v /var/jenkins_home/workspace/DevSecOps-Infrastructure-Pipeline/terraform:/test \
+                    alpine ls -la /test/*.tf || echo "❌ MOUNT FAILED - NO FILES!"
+                '''
+            }
         }
-    }
-}
-
-        stage('Stage 2: Infrastructure Security Scan') {
-    steps {
-        echo '=========================================='
-        echo '🔒 STAGE 2: INFRASTRUCTURE SECURITY SCAN'
-        echo '=========================================='
         
-        script {
-            dir(TERRAFORM_DIR) {
-                echo '📂 Files found:'
-                sh 'ls -la *.tf'
-                
-                echo '🔧 Step 1: Clean previous state'
-                sh 'rm -rf .terraform* || true'
-                
-                echo '🔧 Step 2: Terraform Init'
-                sh '''
-                    docker run --rm \
-                        -v $(pwd):/workspace \
-                        -w /workspace \
-                        hashicorp/terraform:1.6.0 \
-                        init -backend=false -no-color
-                '''
-                
-                echo '🧪 Step 3: Terraform Validate'
-                sh '''
-                    docker run --rm \
-                        -v $(pwd):/workspace \
-                        -w /workspace \
-                        hashicorp/terraform:1.6.0 \
-                        validate -no-color
-                '''
-                
-                echo '🔍 Step 4: Trivy Scan (JSON)'
-                sh '''
-                    docker run --rm \
-  -v "$WORKSPACE/terraform":/workspace \
-  -w /workspace \
-  aquasec/trivy:latest \
-  config . \
-  --severity CRITICAL,HIGH,MEDIUM,LOW \
-  --format json \
-  --output trivy-results.json
-
-                '''
-                
-                echo '📊 Step 5: Trivy Scan (Table) - VULNERABILITIES HERE!'
-                sh '''
-                    docker run --rm \
-  -v "$WORKSPACE/terraform":/workspace \
-  -w /workspace \
-  aquasec/trivy:latest \
-  config . \
-  --severity CRITICAL,HIGH,MEDIUM,LOW \
-  --format table
-
-                '''
-                
+        stage('Stage 2: Infrastructure Security Scan') {
+            steps {
                 echo '=========================================='
-                echo '📈 SECURITY SCAN SUMMARY'
+                echo '🔒 STAGE 2: INFRASTRUCTURE SECURITY SCAN'
                 echo '=========================================='
                 
-                // Parse JSON and FAIL on HIGH/CRITICAL
-                def criticalCount = 0
-                def highCount = 0
-                def mediumCount = 0
-                def lowCount = 0
-                def totalIssues = 0
-                
-                if (fileExists('trivy-results.json')) {
-                    def jsonResults = readJSON file: 'trivy-results.json'
-                    if (jsonResults && jsonResults.Results) {
-                        jsonResults.Results.each { result ->
-                            if (result.Misconfigurations) {
-                                result.Misconfigurations.each { issue ->
-                                    totalIssues++
-                                    switch(issue.Severity) {
-                                        case 'CRITICAL': criticalCount++; break
-                                        case 'HIGH': highCount++; break
-                                        case 'MEDIUM': mediumCount++; break
-                                        case 'LOW': lowCount++; break
+                script {
+                    dir(TERRAFORM_DIR) {
+                        def tfPath = pwd()
+                        echo "📂 Working in: ${tfPath}"
+                        
+                        echo '📂 Files found:'
+                        sh 'ls -la *.tf'
+                        
+                        echo '🔧 Step 1: Clean previous state'
+                        sh 'rm -rf .terraform* tfplan* trivy-results.json || true'
+                        
+                        echo '🔧 Step 2: Terraform Init'
+                        sh """
+                            docker run --rm \
+                                -v ${tfPath}:/workspace \
+                                -w /workspace \
+                                hashicorp/terraform:${TERRAFORM_VERSION} \
+                                init -backend=false -no-color
+                        """
+                        
+                        echo '🧪 Step 3: Terraform Validate'
+                        sh """
+                            docker run --rm \
+                                -v ${tfPath}:/workspace \
+                                -w /workspace \
+                                hashicorp/terraform:${TERRAFORM_VERSION} \
+                                validate -no-color
+                        """
+                        
+                        // TEST DOCKER MOUNT BEFORE TRIVY
+                        echo '🔍 TESTING DOCKER MOUNT:'
+                        sh """
+                            docker run --rm -v ${tfPath}:/test alpine \\
+                            ls -la /test/ && \\
+                            ls -la /test/*.tf || echo '❌ NO .tf FILES IN MOUNT!'
+                        """
+                        
+                        echo '🔍 Step 4: Trivy Scan (JSON) - FIXED PATHS'
+                        sh """
+                            docker run --rm \\
+                                -v ${tfPath}:/src \\
+                                aquasec/trivy:latest \\
+                                config /src \\
+                                --severity CRITICAL,HIGH,MEDIUM,LOW \\
+                                --format json \\
+                                --output /src/trivy-results.json \\
+                                --exit-code 0
+                        """
+                        
+                        echo '📊 Step 5: Trivy Scan (Table) - VULNERABILITIES HERE!'
+                        sh """
+                            docker run --rm \\
+                                -v ${tfPath}:/src \\
+                                aquasec/trivy:latest \\
+                                config /src \\
+                                --severity CRITICAL,HIGH,MEDIUM,LOW \\
+                                --format table
+                        """
+                        
+                        echo '=========================================='
+                        echo '📈 SECURITY SCAN SUMMARY'
+                        echo '=========================================='
+                        
+                        // Parse JSON results
+                        def criticalCount = 0
+                        def highCount = 0
+                        def mediumCount = 0
+                        def lowCount = 0
+                        def totalIssues = 0
+                        
+                        if (fileExists('trivy-results.json')) {
+                            def jsonResults = readJSON file: 'trivy-results.json'
+                            if (jsonResults?.Results) {
+                                jsonResults.Results.each { result ->
+                                    if (result.Misconfigurations) {
+                                        result.Misconfigurations.each { issue ->
+                                            totalIssues++
+                                            switch(issue.Severity) {
+                                                case 'CRITICAL': criticalCount++; break
+                                                case 'HIGH': highCount++; break
+                                                case 'MEDIUM': mediumCount++; break
+                                                case 'LOW': lowCount++; break
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
+                        
+                        echo "🔴 CRITICAL: ${criticalCount}"
+                        echo "🟠 HIGH:     ${highCount}"
+                        echo "🟡 MEDIUM:   ${mediumCount}"
+                        echo "🟢 LOW:      ${lowCount}"
+                        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                        echo "📊 TOTAL:    ${totalIssues}"
+                        
+                        if (totalIssues == 0) {
+                            echo '✅ No vulnerabilities found - Pipeline PASSES'
+                        } else {
+                            echo '⚠️  VULNERABILITIES DETECTED!'
+                            echo '📋 Expected: SSH port 22 (0.0.0.0/0)'
+                            
+                            if (criticalCount > 0 || highCount > 0) {
+                                error("❌ SECURITY SCAN FAILED!\n🔴 ${criticalCount} CRITICAL + 🟠 ${highCount} HIGH issues found\n✅ Fix 0.0.0.0/0 rules then re-run!")
+                            } else {
+                                echo '⚠️  Only MEDIUM/LOW - Pipeline continues'
+                            }
+                        }
+                        
+                        echo '✅ Stage 2 Complete!'
                     }
                 }
-                
-                echo "🔴 CRITICAL: ${criticalCount}"
-                echo "🟠 HIGH:     ${highCount}"
-                echo "🟡 MEDIUM:   ${mediumCount}"
-                echo "🟢 LOW:      ${lowCount}"
-                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                echo "📊 TOTAL:    ${totalIssues}"
-                
-                if (totalIssues == 0) {
-                    echo '✅ No vulnerabilities found - Pipeline PASSES'
-                } else {
-                    echo '⚠️  VULNERABILITIES DETECTED!'
-                    echo '📋 Expected: SSH port 22 (0.0.0.0/0) + Port 8000 (0.0.0.0/0)'
-                    
-                    if (criticalCount > 0 || highCount > 0) {
-                        error("❌ SECURITY SCAN FAILED!\n🔴 ${criticalCount} CRITICAL + 🟠 ${highCount} HIGH issues found\n✅ Fix 0.0.0.0/0 rules then re-run!")
-                    } else {
-                        echo '⚠️  Only MEDIUM/LOW - Pipeline continues'
-                    }
-                }
-                
-                echo '✅ Stage 2 Complete!'
             }
         }
-    }
-}
-
         
         stage('Stage 3: Terraform Plan') {
             steps {
@@ -237,16 +246,10 @@ pipeline {
                         echo '✅ Configuration is valid'
                         echo ''
                         
-                        // ============================================
-                        // THIS IS THE KEY CHANGE FOR METHOD 1
-                        // ============================================
-                        // Terraform Plan with AWS credentials from Jenkins
+                        // Terraform Plan with AWS credentials
                         echo '📊 Step 4: Terraform Plan'
                         echo '🔐 Using AWS credentials from Jenkins credential store'
                         sh '''
-                            # Export AWS credentials from Jenkins credentials
-                            # AWS_CREDENTIALS_USR = Access Key ID
-                            # AWS_CREDENTIALS_PSW = Secret Access Key
                             export AWS_ACCESS_KEY_ID="${AWS_CREDENTIALS_USR}"
                             export AWS_SECRET_ACCESS_KEY="${AWS_CREDENTIALS_PSW}"
                             export AWS_DEFAULT_REGION="ap-south-1"
@@ -254,7 +257,6 @@ pipeline {
                             echo "✅ AWS credentials loaded from Jenkins"
                             echo "✅ Region: ap-south-1 (Mumbai)"
                             
-                            # Run terraform plan
                             terraform plan -no-color -out=tfplan
                         '''
                         echo ''
@@ -339,7 +341,6 @@ pipeline {
         always {
             echo ''
             echo '🧹 Cleaning up workspace...'
-            // Keep terraform directory for manual apply
             dir(TERRAFORM_DIR) {
                 sh 'rm -f trivy-results.json 2>/dev/null || true'
             }
