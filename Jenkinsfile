@@ -41,47 +41,99 @@ pipeline {
         
         script {
             dir(TERRAFORM_DIR) {
-                // ADD THIS: Initialize Terraform first
-                echo '🔧 Initializing Terraform...'
+                echo '📂 Files found:'
+                sh 'ls -la *.tf'
+                
+                echo '🔧 Step 1: Terraform Init'
                 sh '''
                     docker run --rm \
                         -v $(pwd):/workspace \
                         -w /workspace \
-                        hashicorp/terraform:${TERRAFORM_VERSION} \
-                        init -backend=false
+                        -e TF_IN_AUTOMATION=true \
+                        hashicorp/terraform:1.6.0 \
+                        init -backend=false -no-color || echo "Init warnings OK"
                 '''
-                echo '✅ Terraform initialized'
-                echo ''
                 
-                // Now run the security scan
-                echo '🔍 Scanning Terraform configurations...'
+                echo '🧪 Step 2: Terraform Validate'
+                sh '''
+                    docker run --rm \
+                        -v $(pwd):/workspace \
+                        -w /workspace \
+                        hashicorp/terraform:1.6.0 \
+                        validate -no-color
+                '''
                 
-                // Run Trivy with better configuration
-                def trivyScanExitCode = sh(
-                    script: '''
-                        docker run --rm \
-                            -v $(pwd):/src \
-                            aquasec/trivy:latest \
-                            config /src \
-                            --severity CRITICAL,HIGH,MEDIUM,LOW \
-                            --format json \
-                            --output /src/trivy-results.json \
-                            --exit-code 0
-                    ''',
-                    returnStatus: true
-                )
-                
-                // Display results in table format
+                echo '🔍 Step 3: Trivy Scan (JSON)'
                 sh '''
                     docker run --rm \
                         -v $(pwd):/src \
                         aquasec/trivy:latest \
                         config /src \
                         --severity CRITICAL,HIGH,MEDIUM,LOW \
-                        --format table
+                        --format json \
+                        --output trivy-results.json \
+                        --exit-code 0 \
+                        --no-progress
                 '''
                 
-                // ... rest of your parsing code ...
+                echo '📊 Step 4: Trivy Scan (Table)'
+                sh '''
+                    docker run --rm \
+                        -v $(pwd):/src \
+                        aquasec/trivy:latest \
+                        config /src \
+                        --severity CRITICAL,HIGH,MEDIUM,LOW \
+                        --format table \
+                        --no-progress
+                '''
+                
+                echo '=========================================='
+                echo '📈 SECURITY SCAN SUMMARY'
+                echo '=========================================='
+                
+                // Parse JSON results
+                def criticalCount = 0
+                def highCount = 0
+                def mediumCount = 0
+                def lowCount = 0
+                def totalIssues = 0
+                
+                if (fileExists('trivy-results.json')) {
+                    def jsonResults = readJSON file: 'trivy-results.json'
+                    if (jsonResults.Results) {
+                        jsonResults.Results.each { result ->
+                            if (result.Misconfigurations) {
+                                result.Misconfigurations.each { issue ->
+                                    totalIssues++
+                                    switch(issue.Severity) {
+                                        case 'CRITICAL': criticalCount++; break
+                                        case 'HIGH': highCount++; break
+                                        case 'MEDIUM': mediumCount++; break
+                                        case 'LOW': lowCount++; break
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                echo "🔴 CRITICAL: ${criticalCount}"
+                echo "🟠 HIGH:     ${highCount}"
+                echo "🟡 MEDIUM:   ${mediumCount}"
+                echo "🟢 LOW:      ${lowCount}"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo "📊 TOTAL:    ${totalIssues}"
+                
+                if (totalIssues == 0) {
+                    echo '✅ No vulnerabilities found'
+                } else {
+                    echo '⚠️  Vulnerabilities detected!'
+                    if (criticalCount > 0 || highCount > 0) {
+                        error("❌ FAILED: ${criticalCount} CRITICAL + ${highCount} HIGH issues")
+                    } else {
+                        echo '⚠️  MEDIUM/LOW issues - continuing...'
+                    }
+                }
             }
         }
     }
