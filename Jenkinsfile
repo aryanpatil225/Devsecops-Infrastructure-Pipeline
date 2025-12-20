@@ -44,17 +44,19 @@ pipeline {
                 echo '📂 Files found:'
                 sh 'ls -la *.tf'
                 
-                echo '🔧 Step 1: Terraform Init'
+                echo '🔧 Step 1: Clean previous state'
+                sh 'rm -rf .terraform* || true'
+                
+                echo '🔧 Step 2: Terraform Init'
                 sh '''
                     docker run --rm \
                         -v $(pwd):/workspace \
                         -w /workspace \
-                        -e TF_IN_AUTOMATION=true \
                         hashicorp/terraform:1.6.0 \
-                        init -backend=false -no-color || echo "Init warnings OK"
+                        init -backend=false -no-color
                 '''
                 
-                echo '🧪 Step 2: Terraform Validate'
+                echo '🧪 Step 3: Terraform Validate'
                 sh '''
                     docker run --rm \
                         -v $(pwd):/workspace \
@@ -63,7 +65,7 @@ pipeline {
                         validate -no-color
                 '''
                 
-                echo '🔍 Step 3: Trivy Scan (JSON)'
+                echo '🔍 Step 4: Trivy Scan (JSON)'
                 sh '''
                     docker run --rm \
                         -v $(pwd):/src \
@@ -72,26 +74,24 @@ pipeline {
                         --severity CRITICAL,HIGH,MEDIUM,LOW \
                         --format json \
                         --output trivy-results.json \
-                        --exit-code 0 \
-                        --no-progress
+                        --exit-code 0
                 '''
                 
-                echo '📊 Step 4: Trivy Scan (Table)'
+                echo '📊 Step 5: Trivy Scan (Table) - VULNERABILITIES HERE!'
                 sh '''
                     docker run --rm \
                         -v $(pwd):/src \
                         aquasec/trivy:latest \
                         config /src \
                         --severity CRITICAL,HIGH,MEDIUM,LOW \
-                        --format table \
-                        --no-progress
+                        --format table
                 '''
                 
                 echo '=========================================='
                 echo '📈 SECURITY SCAN SUMMARY'
                 echo '=========================================='
                 
-                // Parse JSON results
+                // Parse JSON and FAIL on HIGH/CRITICAL
                 def criticalCount = 0
                 def highCount = 0
                 def mediumCount = 0
@@ -100,7 +100,7 @@ pipeline {
                 
                 if (fileExists('trivy-results.json')) {
                     def jsonResults = readJSON file: 'trivy-results.json'
-                    if (jsonResults.Results) {
+                    if (jsonResults && jsonResults.Results) {
                         jsonResults.Results.each { result ->
                             if (result.Misconfigurations) {
                                 result.Misconfigurations.each { issue ->
@@ -125,15 +125,19 @@ pipeline {
                 echo "📊 TOTAL:    ${totalIssues}"
                 
                 if (totalIssues == 0) {
-                    echo '✅ No vulnerabilities found'
+                    echo '✅ No vulnerabilities found - Pipeline PASSES'
                 } else {
-                    echo '⚠️  Vulnerabilities detected!'
+                    echo '⚠️  VULNERABILITIES DETECTED!'
+                    echo '📋 Expected: SSH port 22 (0.0.0.0/0) + Port 8000 (0.0.0.0/0)'
+                    
                     if (criticalCount > 0 || highCount > 0) {
-                        error("❌ FAILED: ${criticalCount} CRITICAL + ${highCount} HIGH issues")
+                        error("❌ SECURITY SCAN FAILED!\n🔴 ${criticalCount} CRITICAL + 🟠 ${highCount} HIGH issues found\n✅ Fix 0.0.0.0/0 rules then re-run!")
                     } else {
-                        echo '⚠️  MEDIUM/LOW issues - continuing...'
+                        echo '⚠️  Only MEDIUM/LOW - Pipeline continues'
                     }
                 }
+                
+                echo '✅ Stage 2 Complete!'
             }
         }
     }
