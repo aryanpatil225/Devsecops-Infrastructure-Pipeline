@@ -54,7 +54,7 @@ pipeline {
                 sh 'ls -1 *.tf'
                 echo ''
                 
-                // Run Checkov scan (more reliable for Terraform)
+                // Run Checkov scan - CORRECTED VERSION (removed --quiet)
                 echo '🔐 Running Checkov security scan...'
                 def checkovExitCode = sh(
                     script: '''
@@ -63,8 +63,7 @@ pipeline {
                             bridgecrew/checkov:latest \
                             -d /tf \
                             --framework terraform \
-                            --compact \
-                            --quiet
+                            --compact
                     ''',
                     returnStatus: true
                 )
@@ -81,10 +80,13 @@ pipeline {
                 } else {
                     echo '⚠️  WARNING: Security issues detected!'
                     echo ''
+                    echo '📋 EXIT CODE: ' + checkovExitCode
+                    echo ''
                     echo '🔧 RECOMMENDED ACTIONS:'
                     echo '   1. Review the scan output above for details'
                     echo '   2. Fix the identified issues in your Terraform files'
                     echo '   3. Common issues to check:'
+                    echo '      - Open SSH (0.0.0.0/0) on port 22'
                     echo '      - Unencrypted storage (S3, EBS)'
                     echo '      - Open security groups (0.0.0.0/0)'
                     echo '      - Missing encryption at rest'
