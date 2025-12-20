@@ -34,22 +34,22 @@ pipeline {
         }
         
         stage('Terraform Plan') {
-            steps {
-                sh '''
-                    # Install Terraform
-                    if ! command -v terraform &> /dev/null; then
-                        wget https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
-                        unzip terraform_1.6.6_linux_amd64.zip
-                        mv terraform /usr/local/bin/
-                    fi
-                    
-                    cd terraform
-                    terraform init
-                    terraform validate
-                    terraform plan
-                '''
-            }
-        }
+    steps {
+        sh '''
+            # Skip if terraform exists
+            if ! command -v terraform &> /dev/null; then
+                wget -q https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
+                unzip -o terraform_1.6.6_linux_amd64.zip
+                mv terraform /usr/local/bin/
+            fi
+            
+            cd terraform
+            terraform init
+            terraform validate
+            terraform plan
+        '''
+    }
+}
     }
     
     post {
