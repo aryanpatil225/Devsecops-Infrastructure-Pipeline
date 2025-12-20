@@ -77,34 +77,37 @@ pipeline {
                 echo '🔧 Terraform Init'
                 sh """
                     docker run --rm \
-                        -v ${workspacePath}:/workspace \
-                        -w /workspace \
-                        hashicorp/terraform:${TERRAFORM_VERSION} \
-                        init -backend=false -no-color
+  -v "$WORKSPACE/terraform":/workspace \
+  -w /workspace \
+  hashicorp/terraform:1.6.0 \
+  init -backend=false -no-color
+
                 """
                 
                 // TRIVY with ABSOLUTE PATH (FIXED!)
                 echo '🔍 Trivy JSON Scan'
                 sh """
                     docker run --rm \
-                    -v /var/jenkins_home/workspace/DevSecOps-Infrastructure-Pipeline:/src \
-                    aquasec/trivy:latest \
-                config /src/terraform \
-                 --severity CRITICAL,HIGH,MEDIUM,LOW \
-                   --format json \
-                 --output /src/terraform/trivy-results.json \
-                 --exit-code 0
+  -v "$WORKSPACE":/src \
+  aquasec/trivy:latest \
+  config /src/terraform \
+  --severity CRITICAL,HIGH,MEDIUM,LOW \
+  --format json \
+  --output /src/terraform/trivy-results.json \
+  --exit-code 0
+
 
                 """
                 
                 echo '📊 Trivy Table Scan - VULNERABILITIES HERE!'
                 sh """
                     docker run --rm \
-                        -v /var/jenkins_home/workspace/DevSecOps-Infrastructure-Pipeline:/src \
-                    aquasec/trivy:latest \
-                   config /src/terraform \
-                  --severity CRITICAL,HIGH,MEDIUM,LOW \
-                   --format table
+  -v "$WORKSPACE":/src \
+  aquasec/trivy:latest \
+  config /src/terraform \
+  --severity CRITICAL,HIGH,MEDIUM,LOW \
+  --format table
+
 
                 """
                 
