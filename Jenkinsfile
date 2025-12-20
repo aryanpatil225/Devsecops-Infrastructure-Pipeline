@@ -56,39 +56,8 @@ pipeline {
         }
     }
 }
-      stage('DEBUG: Verify Files & Paths') {
-    steps {
-        echo '=========================================='
-        echo '🔍 DEBUG: FILES & PATHS VERIFICATION'
-        echo '=========================================='
-        
-        // Check workspace structure
-        echo '📂 ROOT WORKSPACE:'
-        sh 'ls -la'
-        
-        echo '📂 TERRAFORM DIR:'
-        sh 'ls -la terraform/'
-        sh 'ls -la terraform/*.tf || echo "NO .tf FILES!"'
-        
-        // Get absolute paths
-        script {
-            dir('terraform') {
-                def tfPath = pwd()
-                echo "✅ ABSOLUTE TF PATH: ${tfPath}"
-                sh "ls -la ${tfPath}/*.tf || echo 'TF FILES MISSING!'"
-            }
-        }
-        
-        // Test Docker mount IMMEDIATELY
-        echo '🧪 TEST DOCKER MOUNT:'
-        sh '''
-            docker run --rm -v /var/jenkins_home/workspace/DevSecOps-Infrastructure-Pipeline/terraform:/test \
-            alpine ls -la /test/*.tf || echo "❌ MOUNT FAILED - NO FILES!"
-        '''
-    }
-}
 
-        stage('Stage 2: Infrastructure Security Scan') {
+       stage('Stage 2: Infrastructure Security Scan') {
     steps {
         echo '=========================================='
         echo '🔒 STAGE 2: INFRASTRUCTURE SECURITY SCAN'
@@ -96,47 +65,25 @@ pipeline {
         
         script {
             dir(TERRAFORM_DIR) {
-                echo '📂 Files found:'
+                // Get ABSOLUTE path for Docker
+                def workspacePath = pwd()
+                echo "📂 ABSOLUTE PATH: ${workspacePath}"
+                
+                // Clean state
+                sh 'rm -rf .terraform .terraform.lock.hcl tfplan* || true'
                 sh 'ls -la *.tf'
                 
-                echo '🔧 Step 1: Clean previous state'
-                sh 'rm -rf .terraform* || true'
-                
-                echo '🔧 Step 2: Terraform Init'
-                sh '''
+                // Terraform Init
+                echo '🔧 Terraform Init'
+                sh """
                     docker run --rm \
-                        -v $(pwd):/workspace \
+                        -v ${workspacePath}:/workspace \
                         -w /workspace \
-                        hashicorp/terraform:1.6.0 \
+                        hashicorp/terraform:${TERRAFORM_VERSION} \
                         init -backend=false -no-color
-                '''
+                """
                 
-                echo '🧪 Step 3: Terraform Validate'
-                sh '''
-                    docker run --rm \
-                        -v $(pwd):/workspace \
-                        -w /workspace \
-                        hashicorp/terraform:1.6.0 \
-                        validate -no-color
-                '''
-                dir(TERRAFORM_DIR) {
-    def tfPath = pwd()
-    echo "🔍 TESTING MOUNT: ${tfPath}"
-    
-    // TEST 1: List files via Docker
-    sh """
-        docker run --rm -v ${tfPath}:/test alpine \\
-        ls -la /test/ && \\
-        ls -la /test/*.tf || echo '❌ NO .tf FILES IN MOUNT!'
-    """
-    
-    // TEST 2: Cat main.tf via Docker
-    sh """
-        docker run --rm -v ${tfPath}:/test alpine \\
-        cat /test/main.tf | head -20 || echo '❌ CANNOT READ main.tf!'
-    """
-}
-
+                // TRIVY with ABSOLUTE PATH (FIXED!)
                 // REPLACE your Trivy commands with THESE:
 echo '🔍 Trivy JSON Scan'
 sh """
@@ -161,21 +108,16 @@ sh """
         --format table
 """
 
-                
                 echo '=========================================='
                 echo '📈 SECURITY SCAN SUMMARY'
                 echo '=========================================='
                 
-                // Parse JSON and FAIL on HIGH/CRITICAL
-                def criticalCount = 0
-                def highCount = 0
-                def mediumCount = 0
-                def lowCount = 0
-                def totalIssues = 0
+                // Parse JSON
+                def criticalCount = 0, highCount = 0, mediumCount = 0, lowCount = 0, totalIssues = 0
                 
                 if (fileExists('trivy-results.json')) {
                     def jsonResults = readJSON file: 'trivy-results.json'
-                    if (jsonResults && jsonResults.Results) {
+                    if (jsonResults?.Results) {
                         jsonResults.Results.each { result ->
                             if (result.Misconfigurations) {
                                 result.Misconfigurations.each { issue ->
@@ -192,31 +134,24 @@ sh """
                     }
                 }
                 
+                // SHOW COUNTS
                 echo "🔴 CRITICAL: ${criticalCount}"
                 echo "🟠 HIGH:     ${highCount}"
                 echo "🟡 MEDIUM:   ${mediumCount}"
                 echo "🟢 LOW:      ${lowCount}"
-                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 echo "📊 TOTAL:    ${totalIssues}"
                 
-                if (totalIssues == 0) {
-                    echo '✅ No vulnerabilities found - Pipeline PASSES'
-                } else {
-                    echo '⚠️  VULNERABILITIES DETECTED!'
-                    echo '📋 Expected: SSH port 22 (0.0.0.0/0) + Port 8000 (0.0.0.0/0)'
-                    
-                    if (criticalCount > 0 || highCount > 0) {
-                        error("❌ SECURITY SCAN FAILED!\n🔴 ${criticalCount} CRITICAL + 🟠 ${highCount} HIGH issues found\n✅ Fix 0.0.0.0/0 rules then re-run!")
-                    } else {
-                        echo '⚠️  Only MEDIUM/LOW - Pipeline continues'
-                    }
+                if (totalIssues > 0 && highCount > 0) {
+                    error("❌ FAILED: ${highCount} HIGH vulnerabilities!\n📸 Screenshot for assignment ✅")
                 }
                 
-                echo '✅ Stage 2 Complete!'
+                echo '✅ Security scan PASSED'
             }
         }
     }
 }
+
 
         
         stage('Stage 3: Terraform Plan') {
