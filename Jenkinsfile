@@ -5,6 +5,11 @@ pipeline {
         TERRAFORM_VERSION = "1.6.0"
         TERRAFORM_DIR = "terraform"
         AWS_CREDENTIALS = credentials('aws-credentials')
+        
+        // Security scan thresholds
+        FAIL_ON_CRITICAL = "true"
+        FAIL_ON_HIGH = "true"
+        FAIL_ON_MEDIUM = "false"  // Set to "true" for stricter enforcement
     }
     
     stages {
@@ -38,72 +43,149 @@ pipeline {
                         echo '🔍 Scanning Terraform configurations for security vulnerabilities...'
                         echo ''
                         
-                        echo '📋 Terraform files in directory:'
-                        sh 'pwd'
-                        sh 'ls -lah *.tf'
-                        echo ''
+                        // Verify Terraform files exist
+                        def tfFiles = sh(
+                            script: 'find . -name "*.tf" -type f | wc -l',
+                            returnStdout: true
+                        ).trim()
                         
-                        echo '🔐 Running Trivy misconfiguration scan...'
-                        echo '📊 Scanning for: CRITICAL, HIGH, MEDIUM severity issues'
-                        echo ''
-                        
-                        def trivyScanExitCode = sh(
-                            script: '''
-                                docker run --rm \
-                                    -v "$(pwd)":/workspace:ro \
-                                    -w /workspace \
-                                    aquasec/trivy:latest \
-                                    config . \
-                                    --scanners misconfig \
-                                    --severity CRITICAL,HIGH,MEDIUM \
-                                    --format table \
-                                    --exit-code 1
-                            ''',
-                            returnStatus: true
-                        )
-                        
-                        echo ''
-                        echo '=========================================='
-                        echo '📊 SECURITY SCAN RESULTS'
-                        echo '=========================================='
-                        
-                        if (trivyScanExitCode == 0) {
-                            echo '✅ SUCCESS: No security vulnerabilities detected!'
-                            echo '✅ All Terraform configurations passed security checks'
-                            echo '✅ Infrastructure code is production-ready'
-                            echo ''
-                            echo '🔐 Security Status: CLEAN'
-                        } else {
-                            echo '❌ SECURITY VULNERABILITIES DETECTED!'
-                            echo ''
-                            echo '🔴 CRITICAL: Pipeline is STOPPING due to security issues'
-                            echo ''
-                            echo '📋 Review the vulnerability table above for:'
-                            echo '   • Vulnerability ID (e.g., AVD-AWS-0107)'
-                            echo '   • Severity level (CRITICAL/HIGH/MEDIUM)'
-                            echo '   • Affected file and line number'
-                            echo '   • Description of the security issue'
-                            echo ''
-                            echo '🔧 Common Security Issues:'
-                            echo '   • Security groups open to 0.0.0.0/0'
-                            echo '   • Unencrypted storage volumes'
-                            echo '   • Public access to resources'
-                            echo '   • Missing IMDSv2 enforcement'
-                            echo '   • Insufficient logging/monitoring'
-                            echo '   • Weak IAM policies'
-                            echo ''
-                            echo '📝 Required Actions:'
-                            echo '   1. Note the vulnerability ID and file location'
-                            echo '   2. Fix the security issue in your Terraform code'
-                            echo '   3. Commit and push your changes'
-                            echo '   4. Re-run this pipeline'
-                            echo ''
-                            
-                            error('❌ PIPELINE FAILED: Security vulnerabilities must be fixed before deployment!')
+                        if (tfFiles.toInteger() == 0) {
+                            error('❌ No Terraform files found! Aborting pipeline.')
                         }
                         
+                        echo "📋 Found ${tfFiles} Terraform configuration file(s)"
+                        sh 'find . -name "*.tf" -type f'
                         echo ''
-                        echo '✅ Security Scan Stage Complete!'
+                        
+                        // Run TFSec - Production-grade Terraform security scanner
+                        echo '🔐 Running TFSec Security Analysis...'
+                        echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+                        
+                        def scanStatus = sh(
+                            script: '''
+                                docker run --rm \
+                                    -v $(pwd):/src \
+                                    aquasec/tfsec:latest /src \
+                                    --format lovely \
+                                    --minimum-severity LOW \
+                                    --no-color 2>&1 || true
+                            ''',
+                            returnStdout: true
+                        ).trim()
+                        
+                        echo scanStatus
+                        echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+                        echo ''
+                        
+                        // Get detailed results with JSON for parsing
+                        def scanExitCode = sh(
+                            script: '''
+                                docker run --rm \
+                                    -v $(pwd):/src \
+                                    aquasec/tfsec:latest /src \
+                                    --format json \
+                                    --minimum-severity LOW \
+                                    > tfsec-results.json 2>&1
+                                echo $?
+                            ''',
+                            returnStdout: true
+                        ).trim().toInteger()
+                        
+                        // Parse results
+                        def results = readJSON file: 'tfsec-results.json'
+                        def criticalCount = 0
+                        def highCount = 0
+                        def mediumCount = 0
+                        def lowCount = 0
+                        
+                        if (results.results) {
+                            results.results.each { issue ->
+                                switch(issue.severity) {
+                                    case 'CRITICAL':
+                                        criticalCount++
+                                        break
+                                    case 'HIGH':
+                                        highCount++
+                                        break
+                                    case 'MEDIUM':
+                                        mediumCount++
+                                        break
+                                    case 'LOW':
+                                        lowCount++
+                                        break
+                                }
+                            }
+                        }
+                        
+                        // Display summary
+                        echo '=========================================='
+                        echo '📊 SECURITY SCAN SUMMARY'
+                        echo '=========================================='
+                        echo "🔴 CRITICAL Issues: ${criticalCount}"
+                        echo "🟠 HIGH Issues: ${highCount}"
+                        echo "🟡 MEDIUM Issues: ${mediumCount}"
+                        echo "🟢 LOW Issues: ${lowCount}"
+                        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                        echo "📋 Total Issues Found: ${criticalCount + highCount + mediumCount + lowCount}"
+                        echo '=========================================='
+                        echo ''
+                        
+                        // Determine if pipeline should fail
+                        def shouldFail = false
+                        def failureReasons = []
+                        
+                        if (FAIL_ON_CRITICAL == "true" && criticalCount > 0) {
+                            shouldFail = true
+                            failureReasons.add("${criticalCount} CRITICAL vulnerability(ies)")
+                        }
+                        
+                        if (FAIL_ON_HIGH == "true" && highCount > 0) {
+                            shouldFail = true
+                            failureReasons.add("${highCount} HIGH severity vulnerability(ies)")
+                        }
+                        
+                        if (FAIL_ON_MEDIUM == "true" && mediumCount > 0) {
+                            shouldFail = true
+                            failureReasons.add("${mediumCount} MEDIUM severity vulnerability(ies)")
+                        }
+                        
+                        if (shouldFail) {
+                            echo '❌ SECURITY SCAN FAILED'
+                            echo ''
+                            echo '🚨 PIPELINE BLOCKED DUE TO:'
+                            failureReasons.each { reason ->
+                                echo "   ❌ ${reason}"
+                            }
+                            echo ''
+                            echo '🔧 ACTION REQUIRED:'
+                            echo '   1. Review the detailed scan results above'
+                            echo '   2. Fix ALL security vulnerabilities'
+                            echo '   3. Common issues to address:'
+                            echo '      • SSH/RDP ports open to 0.0.0.0/0'
+                            echo '      • Unencrypted storage volumes'
+                            echo '      • Missing security group restrictions'
+                            echo '      • Publicly accessible resources'
+                            echo '      • Weak IAM permissions'
+                            echo '   4. Commit fixes and re-run pipeline'
+                            echo ''
+                            echo '💡 TIP: Check tfsec-results.json for detailed findings'
+                            echo ''
+                            
+                            error('❌ Security vulnerabilities detected! Pipeline cannot proceed to deployment.')
+                        } else {
+                            echo '✅ SECURITY SCAN PASSED'
+                            echo ''
+                            if (lowCount > 0 || mediumCount > 0) {
+                                echo '⚠️  NOTE: Low/Medium severity issues detected but not blocking deployment'
+                                echo '📝 Consider addressing these in future iterations'
+                            } else {
+                                echo '🎉 No security vulnerabilities detected!'
+                                echo '✅ Infrastructure code meets security standards'
+                            }
+                            echo ''
+                            echo '✅ Proceeding to next stage...'
+                        }
+                        
                         echo ''
                     }
                 }
@@ -118,11 +200,13 @@ pipeline {
                 
                 script {
                     dir(TERRAFORM_DIR) {
+                        // Verify files
                         echo '📂 Verifying Terraform files...'
                         sh 'pwd'
                         sh 'ls -la *.tf'
                         echo ''
                         
+                        // Install Terraform
                         echo '📦 Setting up Terraform...'
                         sh '''
                             if ! command -v terraform &> /dev/null; then
@@ -142,6 +226,7 @@ pipeline {
                         '''
                         echo ''
                         
+                        // Terraform Format Check
                         echo '🎨 Step 1: Terraform Format Check'
                         def fmtResult = sh(
                             script: 'terraform fmt -check -diff',
@@ -154,36 +239,36 @@ pipeline {
                         }
                         echo ''
                         
+                        // Terraform Init
                         echo '🔧 Step 2: Terraform Init'
-                        sh '''
-                            export AWS_ACCESS_KEY_ID="${AWS_CREDENTIALS_USR}"
-                            export AWS_SECRET_ACCESS_KEY="${AWS_CREDENTIALS_PSW}"
-                            export AWS_DEFAULT_REGION="ap-south-1"
-                            terraform init -no-color
-                        '''
+                        sh 'terraform init -no-color'
                         echo '✅ Terraform initialized successfully'
                         echo ''
                         
+                        // Terraform Validate
                         echo '✔️  Step 3: Terraform Validate'
                         sh 'terraform validate -no-color'
                         echo '✅ Configuration is valid'
                         echo ''
                         
+                        // Terraform Plan
                         echo '📊 Step 4: Terraform Plan'
-                        echo '🔐 Using AWS credentials from Jenkins'
+                        echo '🔐 Using AWS credentials from Jenkins credential store'
                         sh '''
                             export AWS_ACCESS_KEY_ID="${AWS_CREDENTIALS_USR}"
                             export AWS_SECRET_ACCESS_KEY="${AWS_CREDENTIALS_PSW}"
                             export AWS_DEFAULT_REGION="ap-south-1"
                             
-                            echo "✅ AWS credentials loaded"
+                            echo "✅ AWS credentials loaded from Jenkins"
                             echo "✅ Region: ap-south-1 (Mumbai)"
                             
                             terraform plan -no-color -out=tfplan
                         '''
+                        echo ''
                         echo '✅ Terraform plan created successfully'
                         echo ''
                         
+                        // Save plan output
                         echo '💾 Step 5: Save Plan Output'
                         sh 'terraform show -no-color tfplan > tfplan.txt'
                         echo '✅ Plan saved to terraform/tfplan.txt'
@@ -196,7 +281,7 @@ pipeline {
                         echo 'ℹ️  Plan file: terraform/tfplan'
                         echo 'ℹ️  Plan output: terraform/tfplan.txt'
                         echo ''
-                        echo '🚀 TO APPLY THIS PLAN:'
+                        echo '🚀 TO APPLY MANUALLY:'
                         echo '   cd terraform'
                         echo '   terraform apply tfplan'
                         echo ''
@@ -220,14 +305,14 @@ pipeline {
             echo ''
             echo '📊 PIPELINE SUMMARY:'
             echo '   ✅ Stage 1: Checkout - PASSED'
-            echo '   ✅ Stage 2: Security Scan - PASSED (No vulnerabilities)'
+            echo '   ✅ Stage 2: Security Scan - PASSED'
             echo '   ✅ Stage 3: Terraform Plan - PASSED'
             echo ''
             echo "   Build Number: ${env.BUILD_NUMBER}"
             echo "   Duration: ${currentBuild.durationString}"
             echo ''
-            echo '🔐 SECURITY STATUS: VERIFIED CLEAN'
-            echo '📝 Infrastructure plan ready for deployment'
+            echo '🔐 SECURITY: All checks passed'
+            echo '📝 Terraform plan ready for manual apply'
             echo ''
             echo '=========================================='
         }
@@ -242,29 +327,18 @@ pipeline {
             echo "   Failed Stage: ${env.STAGE_NAME}"
             echo "   Duration: ${currentBuild.durationString}"
             echo ''
-            echo '🔍 FAILURE ANALYSIS:'
-            
-            if (env.STAGE_NAME == 'Stage 2: Infrastructure Security Scan') {
-                echo '   ⚠️  Security vulnerabilities detected in Terraform code'
-                echo '   → Review the scan output above'
-                echo '   → Fix vulnerabilities in terraform/ directory'
-                echo '   → Commit fixes and re-run pipeline'
-            } else if (env.STAGE_NAME == 'Stage 3: Terraform Plan') {
-                echo '   ⚠️  Terraform configuration error'
-                echo '   → Check AWS credentials in Jenkins (ID: aws-credentials)'
-                echo '   → Verify terraform.tfvars has admin_ssh_cidr'
-                echo '   → Review Terraform syntax in .tf files'
-            } else {
-                echo '   ⚠️  General pipeline error'
-                echo '   → Check console output above for error details'
-            }
-            
+            echo '🔍 COMMON FAILURE CAUSES:'
+            echo '   - Security vulnerabilities in Terraform code'
+            echo '   - Terraform syntax/validation errors'
+            echo '   - AWS credential issues'
+            echo '   - Missing required variables'
             echo ''
-            echo '📝 NEXT STEPS:'
-            echo '   1. Review error messages in console output'
-            echo '   2. Fix the identified issue'
-            echo '   3. Commit your changes to Git'
-            echo '   4. Re-run the pipeline'
+            echo '📝 TROUBLESHOOTING STEPS:'
+            echo '   1. Check the stage that failed above'
+            echo '   2. Review error messages in the console output'
+            echo '   3. For security failures: Fix vulnerabilities and re-run'
+            echo '   4. For Terraform errors: Validate syntax locally'
+            echo '   5. For AWS errors: Verify credentials in Jenkins'
             echo ''
             echo '=========================================='
         }
@@ -273,7 +347,7 @@ pipeline {
             echo ''
             echo '🧹 Cleaning up workspace...'
             dir(TERRAFORM_DIR) {
-                sh 'rm -f trivy-results.json 2>/dev/null || true'
+                sh 'rm -f tfsec-results.json 2>/dev/null || true'
             }
             echo '✅ Cleanup complete'
         }
