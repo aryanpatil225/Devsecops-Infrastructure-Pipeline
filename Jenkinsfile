@@ -32,31 +32,7 @@ pipeline {
                 echo ''
             }
         }
-        stage('DEBUG: Terraform Files') {
-    steps {
-        echo '=========================================='
-        echo '🔍 DEBUG: CHECK TERRAFORM FILES'
-        echo '=========================================='
         
-        dir(TERRAFORM_DIR) {
-            echo '📁 Directory listing:'
-            sh 'ls -la'
-            
-            echo '📄 main.tf first 30 lines:'
-            sh 'head -30 main.tf'
-            
-            echo '📄 variables.tf content:'
-            sh 'cat variables.tf || echo "MISSING!"'
-            
-            echo '🧪 Test terraform fmt:'
-            sh '''
-                docker run --rm -v $(pwd):/workspace -w /workspace \
-                hashicorp/terraform:1.6.0 fmt -check || echo "FMT OK"
-            '''
-        }
-    }
-}
-
         stage('Stage 2: Infrastructure Security Scan') {
     steps {
         echo '=========================================='
@@ -65,112 +41,69 @@ pipeline {
         
         script {
             dir(TERRAFORM_DIR) {
-                echo '📂 Files found:'
-                sh 'ls -la *.tf'
+                echo '🔍 Scanning Terraform configurations for security issues...'
+                echo ''
                 
-                echo '🔧 Step 1: Clean previous state'
-                sh 'rm -rf .terraform* || true'
+                // Count terraform files
+                def tfFileCount = sh(
+                    script: 'ls -1 *.tf 2>/dev/null | wc -l',
+                    returnStdout: true
+                ).trim()
                 
-                echo '🔧 Step 2: Terraform Init'
-                sh '''
-                    docker run --rm \
-                        -v $(pwd):/workspace \
-                        -w /workspace \
-                        hashicorp/terraform:1.6.0 \
-                        init -backend=false -no-color
-                '''
+                echo "📋 Found ${tfFileCount} Terraform configuration files"
+                sh 'ls -1 *.tf'
+                echo ''
                 
-                echo '🧪 Step 3: Terraform Validate'
-                sh '''
-                    docker run --rm \
-                        -v $(pwd):/workspace \
-                        -w /workspace \
-                        hashicorp/terraform:1.6.0 \
-                        validate -no-color
-                '''
+                // Run Trivy scan - FIXED VERSION
+                echo '🔐 Running Trivy misconfiguration scan...'
+                def trivyScanExitCode = sh(
+                    script: '''
+                        docker run --rm \
+                            -v $(pwd):/workspace \
+                            -w /workspace \
+                            aquasec/trivy:latest \
+                            config . \
+                            --severity CRITICAL,HIGH,MEDIUM,LOW \
+                            --format table \
+                            --exit-code 1
+                    ''',
+                    returnStatus: true
+                )
                 
-                // REPLACE your Trivy commands with THESE:
-echo '🔍 Trivy JSON Scan'
-sh """
-    docker run --rm \\
-        -v ${tfPath}:/workspace \\
-        -w /workspace \\
-        aquasec/trivy:latest \\
-        config . \\
-        --severity CRITICAL,HIGH,MEDIUM,LOW \\
-        --format json \\
-        --output trivy-results.json
-"""
-
-echo '📊 Trivy Table Scan'
-sh """
-    docker run --rm \\
-        -v ${tfPath}:/workspace \\
-        -w /workspace \\
-        aquasec/trivy:latest \\
-        config . \\
-        --severity CRITICAL,HIGH,MEDIUM,LOW \\
-        --format table
-"""
-
-                
+                echo ''
                 echo '=========================================='
-                echo '📈 SECURITY SCAN SUMMARY'
+                echo '📊 SECURITY SCAN REPORT'
                 echo '=========================================='
                 
-                // Parse JSON and FAIL on HIGH/CRITICAL
-                def criticalCount = 0
-                def highCount = 0
-                def mediumCount = 0
-                def lowCount = 0
-                def totalIssues = 0
-                
-                if (fileExists('trivy-results.json')) {
-                    def jsonResults = readJSON file: 'trivy-results.json'
-                    if (jsonResults && jsonResults.Results) {
-                        jsonResults.Results.each { result ->
-                            if (result.Misconfigurations) {
-                                result.Misconfigurations.each { issue ->
-                                    totalIssues++
-                                    switch(issue.Severity) {
-                                        case 'CRITICAL': criticalCount++; break
-                                        case 'HIGH': highCount++; break
-                                        case 'MEDIUM': mediumCount++; break
-                                        case 'LOW': lowCount++; break
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                echo "🔴 CRITICAL: ${criticalCount}"
-                echo "🟠 HIGH:     ${highCount}"
-                echo "🟡 MEDIUM:   ${mediumCount}"
-                echo "🟢 LOW:      ${lowCount}"
-                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                echo "📊 TOTAL:    ${totalIssues}"
-                
-                if (totalIssues == 0) {
-                    echo '✅ No vulnerabilities found - Pipeline PASSES'
+                if (trivyScanExitCode == 0) {
+                    echo '✅ SUCCESS: Zero security issues detected!'
+                    echo '✅ All Terraform configurations passed security checks'
+                    echo '✅ Your infrastructure code is secure!'
                 } else {
-                    echo '⚠️  VULNERABILITIES DETECTED!'
-                    echo '📋 Expected: SSH port 22 (0.0.0.0/0) + Port 8000 (0.0.0.0/0)'
+                    echo '⚠️  WARNING: Security issues detected!'
+                    echo ''
+                    echo '🔧 RECOMMENDED ACTIONS:'
+                    echo '   1. Review the scan output above for details'
+                    echo '   2. Fix the identified issues in your Terraform files'
+                    echo '   3. Common issues to check:'
+                    echo '      - Unencrypted storage (S3, EBS)'
+                    echo '      - Open security groups (0.0.0.0/0)'
+                    echo '      - Missing encryption at rest'
+                    echo '      - Public access to sensitive resources'
+                    echo '   4. Re-run this pipeline after fixes'
+                    echo ''
                     
-                    if (criticalCount > 0 || highCount > 0) {
-                        error("❌ SECURITY SCAN FAILED!\n🔴 ${criticalCount} CRITICAL + 🟠 ${highCount} HIGH issues found\n✅ Fix 0.0.0.0/0 rules then re-run!")
-                    } else {
-                        echo '⚠️  Only MEDIUM/LOW - Pipeline continues'
-                    }
+                    error('❌ Security scan failed! Please fix the issues and re-run.')
                 }
                 
-                echo '✅ Stage 2 Complete!'
+                echo ''
+                echo '✅ Security Scan Stage Complete!'
+                echo ''
             }
         }
     }
 }
 
-        
         stage('Stage 3: Terraform Plan') {
             steps {
                 echo '=========================================='
