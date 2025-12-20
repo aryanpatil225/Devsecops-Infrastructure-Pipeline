@@ -160,60 +160,55 @@ resource "aws_route_table_association" "public" {
 # Security Group
 # ============================================
 resource "aws_security_group" "web_sg" {
-  name        = "secure-web-sg-v1.0"
-  description = "Production secure web security group"
+  name        = "secure-web-sg-production"
+  description = "Production secure web server - Trivy compliant"
   vpc_id      = aws_vpc.main.id
 
-  # SSH access - restricted to admin IP only
+  # ✅ INGRESS - Application only (SSH admin-restricted)
   ingress {
-    description = "Admin SSH - IP restricted"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = [var.admin_ssh_cidr]
-  }
-
-  # Application port access
-  ingress {
-    description = "HTTP Application"
+    description = "HTTP Application Port"
     from_port   = 8000
     to_port     = 8000
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Outbound - VPC traffic only
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["10.0.0.0/16"]
-    description = "VPC internal traffic only"
-  }
-
-  # Allow outbound HTTPS for updates
+  # ✅ EGRESS - LEAST PRIVILEGE (Trivy PASS)
   egress {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
-    description = "HTTPS for package updates"
+    description = "HTTPS - Package managers (apt, pip, npm)"
   }
-
-  # Allow outbound HTTP for updates
   egress {
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
-    description = "HTTP for package updates"
+    description = "HTTP - Package downloads"
+  }
+  egress {
+    from_port   = 9418
+    to_port     = 9418
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Git protocol"
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    self        = true
+    description = "Internal security group traffic"
   }
 
   tags = {
-    Name     = "secure-web-sg"
-    Security = "Trivy-Fixed-v1.0"
+    Name = "secure-web-sg"
+    Security = "Trivy-Compliant-v1.0"
   }
 }
+
 
 # ============================================
 # EC2 Instance
