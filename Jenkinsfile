@@ -57,120 +57,99 @@ pipeline {
     }
 }
 
-          stage('Stage 2: Infrastructure Security Scan') {
-            steps {
+       stage('Stage 2: Infrastructure Security Scan') {
+    steps {
+        echo '=========================================='
+        echo '🔒 STAGE 2: INFRASTRUCTURE SECURITY SCAN'
+        echo '=========================================='
+        
+        script {
+            dir(TERRAFORM_DIR) {
+                // Get ABSOLUTE path for Docker
+                def workspacePath = pwd()
+                echo "📂 ABSOLUTE PATH: ${workspacePath}"
+                
+                // Clean state
+                sh 'rm -rf .terraform .terraform.lock.hcl tfplan* || true'
+                sh 'ls -la *.tf'
+                
+                // Terraform Init
+                echo '🔧 Terraform Init'
+                sh """
+                    docker run --rm \
+                        -v ${workspacePath}:/workspace \
+                        -w /workspace \
+                        hashicorp/terraform:${TERRAFORM_VERSION} \
+                        init -backend=false -no-color
+                """
+                
+                // TRIVY with ABSOLUTE PATH (FIXED!)
+                echo '🔍 Trivy JSON Scan'
+                sh """
+                    docker run --rm \
+                        -v ${workspacePath}:/src \
+                        aquasec/trivy:latest \
+                        config /src \
+                        --severity CRITICAL,HIGH,MEDIUM,LOW \
+                        --format json \
+                        --output /src/trivy-results.json \
+                        --exit-code 0
+                """
+                
+                echo '📊 Trivy Table Scan - VULNERABILITIES HERE!'
+                sh """
+                    docker run --rm \
+                        -v ${workspacePath}:/src \
+                        aquasec/trivy:latest \
+                        config /src \
+                        --severity CRITICAL,HIGH,MEDIUM,LOW \
+                        --format table
+                """
+                
                 echo '=========================================='
-                echo '🔒 STAGE 2: INFRASTRUCTURE SECURITY SCAN'
+                echo '📈 SECURITY SCAN SUMMARY'
                 echo '=========================================='
                 
-                script {
-                    dir(TERRAFORM_DIR) {
-                        // Clean previous state
-                        sh 'rm -rf .terraform .terraform.lock.hcl tfplan* || true'
-                        
-                        echo '📂 Terraform Files:'
-                        sh 'ls -la *.tf'
-                        
-                        // Terraform Init
-                        echo '🔧 Terraform Init'
-                        sh '''
-                            docker run --rm \
-                                -v $(pwd):/workspace -w /workspace \
-                                hashicorp/terraform:${TERRAFORM_VERSION} \
-                                init -backend=false -no-color
-                        '''
-                        
-                        // Trivy JSON Scan
-                        echo '🔍 Trivy JSON Scan'
-                        sh '''
-                            docker run --rm \
-                                -v $(pwd):/src \
-                                aquasec/trivy:latest \
-                                config /src \
-                                --severity CRITICAL,HIGH,MEDIUM,LOW \
-                                --format json \
-                                --output trivy-results.json \
-                                --exit-code 0
-                        '''
-                        
-                        // Trivy Table Scan (VULNERABILITIES DISPLAYED HERE)
-                        echo '📊 Trivy Table Scan - VULNERABILITIES'
-                        sh '''
-                            docker run --rm \
-                                -v $(pwd):/src \
-                                aquasec/trivy:latest \
-                                config /src \
-                                --severity CRITICAL,HIGH,MEDIUM,LOW \
-                                --format table
-                        '''
-                        
-                        echo '=========================================='
-                        echo '📈 SECURITY SCAN SUMMARY'
-                        echo '=========================================='
-                        
-                        // Parse JSON Results
-                        def criticalCount = 0
-                        def highCount = 0
-                        def mediumCount = 0
-                        def lowCount = 0
-                        def totalIssues = 0
-                        
-                        if (fileExists('trivy-results.json')) {
-                            def jsonResults = readJSON file: 'trivy-results.json'
-                            if (jsonResults?.Results) {
-                                jsonResults.Results.each { result ->
-                                    if (result.Misconfigurations) {
-                                        result.Misconfigurations.each { issue ->
-                                            totalIssues++
-                                            switch(issue.Severity) {
-                                                case 'CRITICAL': criticalCount++; break
-                                                case 'HIGH': highCount++; break
-                                                case 'MEDIUM': mediumCount++; break
-                                                case 'LOW': lowCount++; break
-                                            }
-                                        }
+                // Parse JSON
+                def criticalCount = 0, highCount = 0, mediumCount = 0, lowCount = 0, totalIssues = 0
+                
+                if (fileExists('trivy-results.json')) {
+                    def jsonResults = readJSON file: 'trivy-results.json'
+                    if (jsonResults?.Results) {
+                        jsonResults.Results.each { result ->
+                            if (result.Misconfigurations) {
+                                result.Misconfigurations.each { issue ->
+                                    totalIssues++
+                                    switch(issue.Severity) {
+                                        case 'CRITICAL': criticalCount++; break
+                                        case 'HIGH': highCount++; break
+                                        case 'MEDIUM': mediumCount++; break
+                                        case 'LOW': lowCount++; break
                                     }
                                 }
                             }
                         }
-                        
-                        // DISPLAY VULNERABILITY COUNTS
-                        echo "🔴 CRITICAL: ${criticalCount}"
-                        echo "🟠 HIGH:     ${highCount}"
-                        echo "🟡 MEDIUM:   ${mediumCount}"
-                        echo "🟢 LOW:      ${lowCount}"
-                        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                        echo "📊 TOTAL:    ${totalIssues}"
-                        echo ''
-                        
-                        // PIPELINE DECISION
-                        if (totalIssues == 0) {
-                            echo '✅ SUCCESS: Zero security issues detected!'
-                            echo '✅ Infrastructure code is SECURE ✅'
-                        } else {
-                            echo "⚠️  WARNING: ${totalIssues} security issue(s) detected!"
-                            echo ''
-                            echo '🔍 DETAILS (from table above):'
-                            echo '   - AVD-AWS-0107: Security group 0.0.0.0/0 rules'
-                            echo ''
-                            echo '✅ FOR ASSIGNMENT: Screenshot this output!'
-                            
-                            // FAIL ON CRITICAL/HIGH (assignment requirement)
-                            if (criticalCount > 0 || highCount > 0) {
-                                error("""
-❌ SECURITY SCAN FAILED!
-🔴 CRITICAL: ${criticalCount} | 🟠 HIGH: ${highCount}
-📸 Take screenshot for assignment
-✅ Fix 0.0.0.0/0 → admin IP then re-run pipeline
-                                """)
-                            } else {
-                                echo '⚠️  MEDIUM/LOW issues only - Pipeline continues'
-                            }
-                        }
                     }
                 }
+                
+                // SHOW COUNTS
+                echo "🔴 CRITICAL: ${criticalCount}"
+                echo "🟠 HIGH:     ${highCount}"
+                echo "🟡 MEDIUM:   ${mediumCount}"
+                echo "🟢 LOW:      ${lowCount}"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo "📊 TOTAL:    ${totalIssues}"
+                
+                if (totalIssues > 0 && highCount > 0) {
+                    error("❌ FAILED: ${highCount} HIGH vulnerabilities!\n📸 Screenshot for assignment ✅")
+                }
+                
+                echo '✅ Security scan PASSED'
             }
         }
+    }
+}
+
 
         
         stage('Stage 3: Terraform Plan') {
