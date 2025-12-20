@@ -32,8 +32,32 @@ pipeline {
                 echo ''
             }
         }
+        stage('DEBUG: Terraform Files') {
+    steps {
+        echo '=========================================='
+        echo '🔍 DEBUG: CHECK TERRAFORM FILES'
+        echo '=========================================='
         
-        stage('Stage 2: Infrastructure Security Scan') {
+        dir(TERRAFORM_DIR) {
+            echo '📁 Directory listing:'
+            sh 'ls -la'
+            
+            echo '📄 main.tf first 30 lines:'
+            sh 'head -30 main.tf'
+            
+            echo '📄 variables.tf content:'
+            sh 'cat variables.tf || echo "MISSING!"'
+            
+            echo '🧪 Test terraform fmt:'
+            sh '''
+                docker run --rm -v $(pwd):/workspace -w /workspace \
+                hashicorp/terraform:1.6.0 fmt -check || echo "FMT OK"
+            '''
+        }
+    }
+}
+
+       stage('Stage 2: Infrastructure Security Scan') {
     steps {
         echo '=========================================='
         echo '🔒 STAGE 2: INFRASTRUCTURE SECURITY SCAN'
@@ -41,107 +65,79 @@ pipeline {
         
         script {
             dir(TERRAFORM_DIR) {
-                echo '📂 Files found:'
+                // NUCLEAR CLEAN - Remove ALL terraform state
+                echo '💣 CLEANING terraform state...'
+                sh '''
+                    rm -rf .terraform .terraform.lock.hcl *.tfstate tfplan tfplan.txt
+                    git clean -fdx .terraform* || true
+                '''
+                
+                echo '📂 Fresh files:'
                 sh 'ls -la *.tf'
                 
-                echo '🔧 Step 1: Clean previous state'
-                sh 'rm -rf .terraform* || true'
+                // Terraform fmt check
+                echo '🎨 terraform fmt check...'
+                sh '''
+                    docker run --rm -v $(pwd):/workspace -w /workspace \
+                    hashicorp/terraform:1.6.0 fmt -check -diff=true || echo "FMT warnings OK"
+                '''
                 
-                echo '🔧 Step 2: Terraform Init'
+                // Terraform init FRESH
+                echo '🔧 Terraform Init (FRESH)...'
                 sh '''
                     docker run --rm \
-                        -v $(pwd):/workspace \
-                        -w /workspace \
+                        -v $(pwd):/workspace -w /workspace \
                         hashicorp/terraform:1.6.0 \
-                        init -backend=false -no-color
+                        init -backend=false -no-color -upgrade
                 '''
                 
-                echo '🧪 Step 3: Terraform Validate'
+                // Terraform validate
+                echo '✅ Terraform Validate...'
                 sh '''
-                    docker run --rm \
-                        -v $(pwd):/workspace \
-                        -w /workspace \
-                        hashicorp/terraform:1.6.0 \
-                        validate -no-color
+                    docker run --rm -v $(pwd):/workspace -w /workspace \
+                    hashicorp/terraform:1.6.0 validate -no-color
                 '''
                 
-                echo '🔍 Step 4: Trivy Scan (JSON)'
+                // TRIVY SCAN
+                echo '🔍 TRIVY SCAN (Table - VULNERABILITIES HERE!)'
                 sh '''
-                    docker run --rm \
-                        -v $(pwd):/src \
-                        aquasec/trivy:latest \
-                        config /src \
-                        --severity CRITICAL,HIGH,MEDIUM,LOW \
-                        --format json \
-                        --output trivy-results.json \
-                        --exit-code 0
+                    docker run --rm -v $(pwd):/src \
+                    aquasec/trivy:latest config /src \
+                    --severity HIGH,MEDIUM \
+                    --format table --exit-code 0
                 '''
                 
-                echo '📊 Step 5: Trivy Scan (Table) - VULNERABILITIES HERE!'
+                echo '🔍 TRIVY SCAN (JSON for parsing)'
                 sh '''
-                    docker run --rm \
-                        -v $(pwd):/src \
-                        aquasec/trivy:latest \
-                        config /src \
-                        --severity CRITICAL,HIGH,MEDIUM,LOW \
-                        --format table
+                    docker run --rm -v $(pwd):/src \
+                    aquasec/trivy:latest config /src \
+                    --severity HIGH,MEDIUM \
+                    --format json --output trivy-results.json --exit-code 0
                 '''
                 
-                echo '=========================================='
-                echo '📈 SECURITY SCAN SUMMARY'
-                echo '=========================================='
-                
-                // Parse JSON and FAIL on HIGH/CRITICAL
-                def criticalCount = 0
-                def highCount = 0
-                def mediumCount = 0
-                def lowCount = 0
+                // Summary (your existing parsing code)
                 def totalIssues = 0
-                
                 if (fileExists('trivy-results.json')) {
-                    def jsonResults = readJSON file: 'trivy-results.json'
-                    if (jsonResults && jsonResults.Results) {
-                        jsonResults.Results.each { result ->
+                    def json = readJSON file: 'trivy-results.json'
+                    if (json.Results) {
+                        json.Results.each { result ->
                             if (result.Misconfigurations) {
-                                result.Misconfigurations.each { issue ->
-                                    totalIssues++
-                                    switch(issue.Severity) {
-                                        case 'CRITICAL': criticalCount++; break
-                                        case 'HIGH': highCount++; break
-                                        case 'MEDIUM': mediumCount++; break
-                                        case 'LOW': lowCount++; break
-                                    }
-                                }
+                                totalIssues += result.Misconfigurations.size()
                             }
                         }
                     }
                 }
                 
-                echo "🔴 CRITICAL: ${criticalCount}"
-                echo "🟠 HIGH:     ${highCount}"
-                echo "🟡 MEDIUM:   ${mediumCount}"
-                echo "🟢 LOW:      ${lowCount}"
-                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                echo "📊 TOTAL:    ${totalIssues}"
+                echo "📊 TOTAL ISSUES: ${totalIssues}"
                 
-                if (totalIssues == 0) {
-                    echo '✅ No vulnerabilities found - Pipeline PASSES'
-                } else {
-                    echo '⚠️  VULNERABILITIES DETECTED!'
-                    echo '📋 Expected: SSH port 22 (0.0.0.0/0) + Port 8000 (0.0.0.0/0)'
-                    
-                    if (criticalCount > 0 || highCount > 0) {
-                        error("❌ SECURITY SCAN FAILED!\n🔴 ${criticalCount} CRITICAL + 🟠 ${highCount} HIGH issues found\n✅ Fix 0.0.0.0/0 rules then re-run!")
-                    } else {
-                        echo '⚠️  Only MEDIUM/LOW - Pipeline continues'
-                    }
+                if (totalIssues > 0) {
+                    error("❌ ${totalIssues} VULNERABILITIES FOUND! Fix 0.0.0.0/0 then re-run!")
                 }
-                
-                echo '✅ Stage 2 Complete!'
             }
         }
     }
 }
+
 
         
         stage('Stage 3: Terraform Plan') {

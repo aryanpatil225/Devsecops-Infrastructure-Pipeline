@@ -1,13 +1,13 @@
 variable "aws_region" {
-  description = "AWS Region"
+  description = "AWS region"
   type        = string
   default     = "ap-south-1"
 }
 
 variable "ami_id" {
-  description = "Ubuntu Server 22.04 LTS AMI"
+  description = "AMI ID for EC2 instance"
   type        = string
-  default     = "ami-0e670eb768a5fc3d4"
+  default     = "ami-0c02fb55956c7d316"  # Ubuntu 22.04 ap-south-1
 }
 
 variable "instance_type" {
@@ -17,12 +17,7 @@ variable "instance_type" {
 }
 
 variable "admin_ssh_cidr" {
-  description = "Admin SSH access - YOUR_PUBLIC_IP/32"
+  description = "Admin SSH access CIDR"
   type        = string
-}
-
-variable "app_port" {
-  description = "Application port"
-  type        = number
-  default     = 8000
+  default     = "0.0.0.0/0"  # VULNERABLE for demo
 }
