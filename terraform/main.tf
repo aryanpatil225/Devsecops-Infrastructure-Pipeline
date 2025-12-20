@@ -1,3 +1,8 @@
+# ============================================
+# Terraform Configuration
+# DevSecOps Infrastructure Pipeline
+# ============================================
+
 terraform {
   required_version = ">= 1.5"
   required_providers {
@@ -20,7 +25,7 @@ provider "aws" {
 }
 
 # ============================================
-# VPC - THIS WAS MISSING!
+# VPC - Virtual Private Cloud
 # ============================================
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
@@ -37,7 +42,7 @@ resource "aws_vpc" "main" {
 # ============================================
 resource "aws_cloudwatch_log_group" "vpc_logs" {
   name              = "/aws/vpc/flow-logs"
-  retention_in_days = 7 # Retain logs for 7 days (adjust as needed)
+  retention_in_days = 7
 
   tags = {
     Name = "vpc-flow-logs"
@@ -97,7 +102,7 @@ resource "aws_flow_log" "vpc" {
   vpc_id               = aws_vpc.main.id
   log_destination      = aws_cloudwatch_log_group.vpc_logs.arn
   log_destination_type = "cloud-watch-logs"
-  traffic_type         = "ALL" # Changed from ACCEPT to ALL for better monitoring
+  traffic_type         = "ALL"
   iam_role_arn         = aws_iam_role.vpc_flow_log_role.arn
 
   tags = {
@@ -112,7 +117,7 @@ resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.1.0/24"
   availability_zone       = "${var.aws_region}a"
-  map_public_ip_on_launch = false # Security best practice: disable auto-assign public IP
+  map_public_ip_on_launch = false
 
   tags = {
     Name = "secure-public-subnet"
@@ -177,7 +182,7 @@ resource "aws_security_group" "web_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Outbound - restricted to VPC only for security
+  # Outbound - VPC traffic only
   egress {
     from_port   = 0
     to_port     = 0
@@ -186,7 +191,7 @@ resource "aws_security_group" "web_sg" {
     description = "VPC internal traffic only"
   }
 
-  # Allow outbound HTTPS for updates (443)
+  # Allow outbound HTTPS for updates
   egress {
     from_port   = 443
     to_port     = 443
@@ -195,7 +200,7 @@ resource "aws_security_group" "web_sg" {
     description = "HTTPS for package updates"
   }
 
-  # Allow outbound HTTP for updates (80)
+  # Allow outbound HTTP for updates
   egress {
     from_port   = 80
     to_port     = 80
@@ -214,11 +219,10 @@ resource "aws_security_group" "web_sg" {
 # EC2 Instance
 # ============================================
 resource "aws_instance" "web" {
-  ami                         = var.ami_id
-  instance_type               = var.instance_type
-  subnet_id                   = aws_subnet.public.id
-  vpc_security_group_ids      = [aws_security_group.web_sg.id]
-  associate_public_ip_address = true  # Required since subnet has map_public_ip_on_launch = false
+  ami                    = var.ami_id
+  instance_type          = var.instance_type
+  subnet_id              = aws_subnet.public.id
+  vpc_security_group_ids = [aws_security_group.web_sg.id]
 
   # Encrypted root volume
   root_block_device {
@@ -231,7 +235,7 @@ resource "aws_instance" "web" {
   # IMDSv2 enforcement for security
   metadata_options {
     http_endpoint = "enabled"
-    http_tokens   = "required" # Requires IMDSv2
+    http_tokens   = "required"
   }
 
   # Enable detailed monitoring
@@ -271,7 +275,6 @@ EOF
     Security = "Trivy-Fixed"
   }
 }
-
 
 # ============================================
 # Outputs
