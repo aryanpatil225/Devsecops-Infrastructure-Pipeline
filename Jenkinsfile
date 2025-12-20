@@ -54,7 +54,7 @@ pipeline {
                 sh 'ls -1 *.tf'
                 echo ''
                 
-                // Run Checkov scan - CORRECTED VERSION (removed --quiet)
+                // Run Checkov scan with proper output and NO --compact flag
                 echo '🔐 Running Checkov security scan...'
                 def checkovExitCode = sh(
                     script: '''
@@ -63,7 +63,7 @@ pipeline {
                             bridgecrew/checkov:latest \
                             -d /tf \
                             --framework terraform \
-                            --compact
+                            --output cli
                     ''',
                     returnStatus: true
                 )
@@ -72,6 +72,8 @@ pipeline {
                 echo '=========================================='
                 echo '📊 SECURITY SCAN REPORT'
                 echo '=========================================='
+                echo "Exit Code: ${checkovExitCode}"
+                echo ''
                 
                 if (checkovExitCode == 0) {
                     echo '✅ SUCCESS: Zero security issues detected!'
@@ -80,21 +82,22 @@ pipeline {
                 } else {
                     echo '⚠️  WARNING: Security issues detected!'
                     echo ''
-                    echo '📋 EXIT CODE: ' + checkovExitCode
+                    echo "📋 Checkov found ${checkovExitCode > 0 ? 'FAILED' : 'issues in'} your configuration"
                     echo ''
                     echo '🔧 RECOMMENDED ACTIONS:'
-                    echo '   1. Review the scan output above for details'
-                    echo '   2. Fix the identified issues in your Terraform files'
-                    echo '   3. Common issues to check:'
-                    echo '      - Open SSH (0.0.0.0/0) on port 22'
-                    echo '      - Unencrypted storage (S3, EBS)'
-                    echo '      - Open security groups (0.0.0.0/0)'
-                    echo '      - Missing encryption at rest'
-                    echo '      - Public access to sensitive resources'
-                    echo '   4. Re-run this pipeline after fixes'
+                    echo '   1. Review the detailed scan output above'
+                    echo '   2. Fix the identified security issues:'
+                    echo '      ❌ SSH port 22 open to 0.0.0.0/0 (entire internet)'
+                    echo '      ❌ Unencrypted resources'
+                    echo '      ❌ Overly permissive security groups'
+                    echo '   3. Common fixes:'
+                    echo '      - Restrict SSH to specific IP: cidr_blocks = [var.admin_ssh_cidr]'
+                    echo '      - Enable encryption on all storage'
+                    echo '      - Use least-privilege access'
+                    echo '   4. Re-run pipeline after fixes'
                     echo ''
                     
-                    error('❌ Security scan failed! Please fix the issues and re-run.')
+                    error('❌ SECURITY SCAN FAILED - Fix vulnerabilities before proceeding!')
                 }
                 
                 echo ''
