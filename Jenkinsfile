@@ -4,43 +4,59 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                git branch: 'main', url: 'https://github.com/aryanpatil225/Devsecops-Infrastructure-Pipeline.git'
             }
         }
         
-        stage('Trivy Security Scan') {
+        stage('Build Python Docker Image') {
+            steps {
+                sh '''
+                    docker build -t devsecops-app:latest .
+                    echo "✅ Python app containerized"
+                '''
+            }
+        }
+        
+        stage('Trivy Terraform Scan') {
             steps {
                 sh '''
                     # Install Trivy
-                    wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
-                    echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee -a /etc/apt/sources.list.d/trivy.list
-                    apt-get update
-                    apt-get install -y trivy
+                    if ! command -v trivy &> /dev/null; then
+                        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor > /usr/share/keyrings/trivy.gpg
+                        echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" > /etc/apt/sources.list.d/trivy.list
+                        apt-get update && apt-get install -y trivy
+                    fi
                     
-                    # Scan Terraform files
-                    trivy config terraform/ --format template --template "@contrib/html.tpl" --output report.html || true
+                    # Scan Terraform infrastructure
+                    trivy config terraform/ --severity CRITICAL,HIGH,MEDIUM --format table
                 '''
-                
-                publishHTML(target: [
-                    allowMissing: true,
-                    alwaysLinkToLastBuild: false,
-                    keepAll: true,
-                    reportDir: ".",
-                    reportFiles: "report.html",
-                    reportName: "Trivy Report"
-                ])
             }
         }
         
         stage('Terraform Plan') {
             steps {
                 sh '''
+                    # Install Terraform
+                    if ! command -v terraform &> /dev/null; then
+                        wget https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
+                        unzip terraform_1.6.6_linux_amd64.zip
+                        mv terraform /usr/local/bin/
+                    fi
+                    
                     cd terraform
                     terraform init
                     terraform validate
                     terraform plan
                 '''
             }
+        }
+    }
+    
+    post {
+        success {
+            echo '✅ Python app built'
+            echo '✅ Terraform infrastructure scanned'
+            echo '✅ Ready for AWS deployment'
         }
     }
 }
