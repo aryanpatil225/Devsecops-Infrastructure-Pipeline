@@ -15,7 +15,7 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
-  default_tags { 
+  default_tags {
     tags = {
       Project     = "DevSecOps-Infrastructure-Pipeline"
       Environment = "production"
@@ -160,56 +160,60 @@ resource "aws_route_table_association" "public" {
 # Security Group
 # ============================================
 resource "aws_security_group" "web_sg" {
-  name        = "secure-web-sg-production"
-  description = "Production secure web server - Trivy compliant"
+  name        = "secure-web-sg-v1.0"
+  description = "Production secure web security group"
   vpc_id      = aws_vpc.main.id
 
-  # ✅ INGRESS - Application only (SSH admin-restricted)
+  # SSH access - restricted to admin IP only
   ingress {
-    description = "HTTP Application Port"
+    description = "Admin SSH - IP restricted"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [var.admin_ssh_cidr]
+  }
+
+  # Application port access
+  ingress {
+    description = "HTTP Application"
     from_port   = 8000
     to_port     = 8000
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # ✅ EGRESS - LEAST PRIVILEGE (Trivy PASS)
+  # Outbound - VPC traffic only
   egress {
-  from_port   = 443
-  to_port     = 443
-  protocol    = "tcp"
-  cidr_blocks = ["0.0.0.0/0"]
-  description = "HTTPS - apt/yum/pip updates"
-}
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["10.0.0.0/16"]
+    description = "VPC internal traffic only"
+  }
 
-egress {
-  from_port   = 80
-  to_port     = 80
-  protocol    = "tcp"
-  cidr_blocks = ["0.0.0.0/0"]
-  description = "HTTP - package downloads"
-}
-
+  # Allow outbound HTTPS for updates
   egress {
-    from_port   = 9418
-    to_port     = 9418
+    from_port   = 443
+    to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
-    description = "Git protocol"
+    description = "HTTPS for package updates"
   }
-  egress {
-  from_port   = 0
-  to_port     = 0
-  protocol    = "-1"
-  self        = true
-  description = "Internal SG communication"
-}
-  tags = {
-    Name = "secure-web-sg"
-    Security = "Trivy-Compliant-v1.0"
-  }
-}
 
+  # Allow outbound HTTP for updates
+  egress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "HTTP for package updates"
+  }
+
+  tags = {
+    Name     = "secure-web-sg"
+    Security = "Trivy-Fixed-v1.0"
+  }
+}
 
 # ============================================
 # EC2 Instance
