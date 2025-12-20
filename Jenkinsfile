@@ -175,12 +175,20 @@ pipeline {
                         sh '''
                             if ! command -v terraform &> /dev/null; then
                                 echo "Installing Terraform ${TERRAFORM_VERSION}..."
+                                
+                                # Remove broken hashicorp repository
+                                rm -f /etc/apt/sources.list.d/hashicorp.list
+                                
+                                # Install prerequisites
                                 apt-get update -qq
                                 apt-get install -y -qq wget unzip > /dev/null 2>&1
+                                
+                                # Download and install Terraform
                                 wget -q https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip
                                 unzip -q terraform_${TERRAFORM_VERSION}_linux_amd64.zip
                                 mv terraform /usr/local/bin/
                                 rm terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+                                
                                 echo "✅ Terraform ${TERRAFORM_VERSION} installed"
                             else
                                 echo "✅ Terraform already available"
