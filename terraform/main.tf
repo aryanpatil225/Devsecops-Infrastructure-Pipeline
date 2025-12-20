@@ -170,7 +170,7 @@ resource "aws_security_group" "web_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]  # INTENTIONALLY VULNERABLE!
+    cidr_blocks = [var.admin_ssh_cidr]
   }
 
   # Application port access
