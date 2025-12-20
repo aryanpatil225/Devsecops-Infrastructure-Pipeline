@@ -4,63 +4,63 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/aryanpatil225/Devsecops-Infrastructure-Pipeline.git'
+                checkout scm
             }
         }
         
-        stage('Build Python Docker Image') {
+        stage('Build Python Docker') {
             steps {
-                sh '''
-                    docker build -t devsecops-app:latest .
-                    echo "✅ Python app containerized"
-                '''
+                sh 'docker build -t devsecops-app:latest .'
+                echo '✅ Python Docker SUCCESS'
             }
         }
         
         stage('Trivy Terraform Scan') {
             steps {
                 sh '''
-                    # Install Trivy
+                    # Clean Trivy repo (fix malformed list)
+                    rm -f /etc/apt/sources.list.d/trivy.list
+                    
+                    # Install lsb-release first
+                    apt-get update && apt-get install -y lsb-release
+                    
+                    # Install Trivy properly
                     if ! command -v trivy &> /dev/null; then
-                        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor > /usr/share/keyrings/trivy.gpg
+                        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /usr/share/keyrings/trivy.gpg
                         echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" > /etc/apt/sources.list.d/trivy.list
                         apt-get update && apt-get install -y trivy
                     fi
                     
-                    # Scan Terraform infrastructure
+                    # Scan Terraform
                     trivy config terraform/ --severity CRITICAL,HIGH,MEDIUM --format table
                 '''
+                echo '✅ Trivy Scan COMPLETE'
             }
         }
         
         stage('Terraform Plan') {
-    steps {
-        sh '''
-            # Fix existing terraform dir first
-            rm -rf /usr/local/bin/terraform*
-            
-            # Install fresh Terraform
-            if ! command -v terraform &> /dev/null; then
-                wget -q https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
-                unzip -o terraform_1.6.6_linux_amd64.zip
-                mv terraform /usr/local/bin/
-                chmod +x /usr/local/bin/terraform
-            fi
-            
-            cd terraform
-            terraform init
-            terraform validate
-            terraform plan
-        '''
-    }
-}
+            steps {
+                sh '''
+                    # Clean old terraform first
+                    rm -rf /usr/local/bin/terraform*
+                    
+                    # Download & install fresh
+                    wget -q https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
+                    unzip -o -q terraform_1.6.6_linux_amd64.zip
+                    mv terraform /usr/local/bin/
+                    chmod +x /usr/local/bin/terraform
+                    
+                    cd terraform
+                    terraform init
+                    terraform validate
+                    terraform plan
+                '''
+                echo '✅ Terraform Plan SUCCESS'
+            }
+        }
     }
     
     post {
-        success {
-            echo '✅ Python app built'
-            echo '✅ Terraform infrastructure scanned'
-            echo '✅ Ready for AWS deployment'
-        }
+        success { echo '🎉 FULL PIPELINE GREEN ✅' }
     }
 }
