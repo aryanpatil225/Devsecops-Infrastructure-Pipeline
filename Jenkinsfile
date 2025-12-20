@@ -33,7 +33,7 @@ pipeline {
             }
         }
         
-       stage('Stage 2: Infrastructure Security Scan') {
+        stage('Stage 2: Infrastructure Security Scan') {
     steps {
         echo '=========================================='
         echo '🔒 STAGE 2: INFRASTRUCTURE SECURITY SCAN'
@@ -44,25 +44,28 @@ pipeline {
                 echo '🔍 Scanning Terraform configurations for security issues...'
                 echo ''
                 
-                // Count terraform files
-                def tfFileCount = sh(
-                    script: 'ls -1 *.tf 2>/dev/null | wc -l',
-                    returnStdout: true
-                ).trim()
-                
-                echo "📋 Found ${tfFileCount} Terraform configuration files"
-                sh 'ls -1 *.tf'
+                // Verify .tf files exist
+                echo '📋 Terraform files in directory:'
+                sh 'pwd'
+                sh 'ls -lah *.tf'
                 echo ''
                 
-                // Run TFSec scan (Terraform-specific security scanner)
-                echo '🔐 Running TFSec security scan...'
-                def tfsecExitCode = sh(
+                // Run Trivy scan with proper flags
+                echo '🔐 Running Trivy misconfiguration scan...'
+                echo 'Scanning for: CRITICAL, HIGH, MEDIUM, LOW'
+                echo ''
+                
+                def trivyScanExitCode = sh(
                     script: '''
                         docker run --rm \
-                            -v $(pwd):/src \
-                            aquasec/tfsec:latest /src \
-                            --format default \
-                            --minimum-severity MEDIUM
+                            -v "$(pwd)":/workspace:ro \
+                            -w /workspace \
+                            aquasec/trivy:latest \
+                            config . \
+                            --scanners misconfig \
+                            --severity CRITICAL,HIGH,MEDIUM,LOW \
+                            --format table \
+                            --exit-code 1
                     ''',
                     returnStatus: true
                 )
@@ -71,35 +74,38 @@ pipeline {
                 echo '=========================================='
                 echo '📊 SECURITY SCAN REPORT'
                 echo '=========================================='
-                echo "Exit Code: ${tfsecExitCode}"
-                echo ''
                 
-                if (tfsecExitCode == 0) {
+                if (trivyScanExitCode == 0) {
                     echo '✅ SUCCESS: Zero security issues detected!'
                     echo '✅ All Terraform configurations passed security checks'
-                    echo '✅ Your infrastructure code is secure!'
                 } else {
-                    echo '⚠️  CRITICAL: Security vulnerabilities detected!'
+                    echo '❌ SECURITY VULNERABILITIES DETECTED!'
                     echo ''
-                    echo '🔧 REQUIRED FIXES:'
-                    echo '   1. Review the TFSec findings above'
-                    echo '   2. Fix ALL security issues before deployment'
-                    echo '   3. Most common issue in your code:'
-                    echo '      ❌ SSH (port 22) is open to 0.0.0.0/0'
+                    echo '🔴 Pipeline is FAILING due to security issues'
                     echo ''
-                    echo '💡 Quick Fix for SSH vulnerability:'
-                    echo '   In main.tf, change:'
-                    echo '   cidr_blocks = ["0.0.0.0/0"]  # BAD'
-                    echo '   TO:'
-                    echo '   cidr_blocks = [var.admin_ssh_cidr]  # GOOD'
+                    echo '📋 IDENTIFIED ISSUES (see table above):'
+                    echo '   - Review each vulnerability'
+                    echo '   - Note the severity level'
+                    echo '   - Check the file and line number'
+                    echo ''
+                    echo '🔧 COMMON FIXES:'
+                    echo '   - SSH open to 0.0.0.0/0 → Change to var.admin_ssh_cidr'
+                    echo '   - Unencrypted EBS → Add encrypted = true'
+                    echo '   - Public S3 bucket → Add block_public_access'
+                    echo '   - IMDSv1 enabled → Enforce IMDSv2 (http_tokens = required)'
+                    echo ''
+                    echo '📝 NEXT STEPS:'
+                    echo '   1. Copy the vulnerability details from the table above'
+                    echo '   2. Fix the issue in terraform/main.tf'
+                    echo '   3. Commit and push your changes'
+                    echo '   4. Re-run this pipeline'
                     echo ''
                     
-                    error('❌ SECURITY SCAN FAILED - Pipeline blocked until vulnerabilities are fixed!')
+                    error('❌ PIPELINE FAILED: Security vulnerabilities found! Fix issues and re-run.')
                 }
                 
                 echo ''
                 echo '✅ Security Scan Stage Complete!'
-                echo ''
             }
         }
     }
