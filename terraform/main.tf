@@ -88,8 +88,9 @@ resource "aws_iam_role_policy" "vpc_flow_log_policy" {
           "logs:DescribeLogGroups",
           "logs:DescribeLogStreams"
         ]
-        Effect   = "Allow"
-        Resource = "*"
+        Effect = "Allow"
+        # Fixed: Scoped to specific resource instead of "*"
+        Resource = "${aws_cloudwatch_log_group.vpc_logs.arn}:*"
       }
     ]
   })
